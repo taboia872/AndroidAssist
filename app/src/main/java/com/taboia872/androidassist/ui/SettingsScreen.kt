@@ -147,20 +147,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
                 models != null -> {
                     val current = cfg.model.ifBlank { null }
-                    LazyColumn {
-                        items(models!!.size) { i ->
-                            val m = models!![i]
-                            Surface(
-                                onClick = { AppSettings.update { it.copy(model = m) } },
-                                color = if (m == current) MaterialTheme.colorScheme.secondaryContainer
-                                else MaterialTheme.colorScheme.surface,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                                    RadioButton(selected = m == current, onClick = { AppSettings.update { it.copy(model = m) } })
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(m, style = MaterialTheme.typography.bodyMedium)
-                                }
+                    models!!.forEach { m ->
+                        Surface(
+                            onClick = { AppSettings.update { it.copy(model = m) } },
+                            color = if (m == current) MaterialTheme.colorScheme.secondaryContainer
+                            else MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                                RadioButton(selected = m == current, onClick = { AppSettings.update { it.copy(model = m) } })
+                                Spacer(Modifier.width(8.dp))
+                                Text(m, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
