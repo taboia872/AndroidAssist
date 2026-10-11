@@ -23,7 +23,12 @@ data class AppConfig(
     val baseUrl: String = LlmProviders.OPENROUTER.defaultBaseUrl,
     val apiKeys: Map<String, String> = emptyMap(),
     val model: String = "",
-    val systemPrompt: String = "You are a helpful, concise assistant. Always reply in the user's language."
+    val systemPrompt: String = "You are a helpful, concise assistant. Always reply in the user's language.",
+    // Voice (Groq Whisper, online phase)
+    val autoStartVoice: Boolean = true,
+    val autoSendVoice: Boolean = true,
+    /** BCP-47 tag; empty = system locale */
+    val voiceLanguage: String = ""
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -37,6 +42,9 @@ object AppSettings {
     private const val K_API_KEYS = "api_keys_json"
     private const val K_MODEL = "model"
     private const val K_PROMPT = "system_prompt"
+    private const val K_AUTO_START_VOICE = "auto_start_voice"
+    private const val K_AUTO_SEND_VOICE = "auto_send_voice"
+    private const val K_VOICE_LANG = "voice_language"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
     private var prefs: SharedPreferences? = null
@@ -90,7 +98,10 @@ object AppSettings {
                 ?: LlmProviders.byId(providerId).defaultBaseUrl,
             apiKeys = keys,
             model = p.getString(K_MODEL, "") ?: "",
-            systemPrompt = p.getString(K_PROMPT, null) ?: AppConfig().systemPrompt
+            systemPrompt = p.getString(K_PROMPT, null) ?: AppConfig().systemPrompt,
+            autoStartVoice = p.getBoolean(K_AUTO_START_VOICE, true),
+            autoSendVoice = p.getBoolean(K_AUTO_SEND_VOICE, true),
+            voiceLanguage = p.getString(K_VOICE_LANG, "") ?: ""
         )
     }
 
@@ -103,6 +114,9 @@ object AppSettings {
             .putString(K_API_KEYS, JSONObject(next.apiKeys).toString())
             .putString(K_MODEL, next.model)
             .putString(K_PROMPT, next.systemPrompt)
+            .putBoolean(K_AUTO_START_VOICE, next.autoStartVoice)
+            .putBoolean(K_AUTO_SEND_VOICE, next.autoSendVoice)
+            .putString(K_VOICE_LANG, next.voiceLanguage)
             .apply()
         _config.value = next
     }

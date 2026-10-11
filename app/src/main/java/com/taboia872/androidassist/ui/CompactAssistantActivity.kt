@@ -1,9 +1,12 @@
 package com.taboia872.androidassist.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,13 +38,16 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -62,34 +68,109 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
+import com.taboia872.androidassist.voice.VoiceEngine
+import java.util.Locale
+import kotlin.math.min
 
 /**
  * The "bloquinho": bottom-sheet assistant opened by the system assistant
- * gesture. Self-contained — same ChatSession machinery as the main screen,
- * session-scoped until chat history persistence lands.
+ * gesture. Auto-starts voice capture on open (if enabled) like the base app.
  */
 class CompactAssistantActivity : ComponentActivity() {
+
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            android.widget.Toast.makeText(
+                this, "Microphone permission is required for voice input",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
         enableEdgeToEdge()
+
+        // Voice capture never passes through MainActivity — request here.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+
         setContent {
             AndroidAssistTheme {
-                AssistantOverlay(onDismiss = { finish() })
+                AssistantOverlay(
+                    onDismiss = { finish() },
+                    requestMic = {
+                        if (ContextCompat.checkSelfPermission(
+                                this, Manifest.permission.RECORD_AUDIO
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun AssistantOverlay(onDismiss: () -> Unit) {
+fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
     val session = remember { ChatSession() }
     var expanded by remember { mutableStateOf(false) }
+
+    // ---- Voice state machine: Idle / Listening / Transcribing ----
+    var listening by remember { mutableStateOf(false) }
+    var transcribing by remember { mutableStateOf(false) }
+    var transcript by remember { mutableStateOf("") }
+    var voiceError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    fun startVoice() {
+        if (listening || transcribing || session.busy) return
+        val cfg = AppSettings.config.value
+        if (!VoiceEngine.hasMicPermission(context)) {
+            requestMic()
+            return
+        }
+        listening = true
+        transcript = ""
+        voiceError = null
+        val lang = cfg.voiceLanguage.ifBlank {
+            Locale.getDefault().toLanguageTag()
+        }
+        VoiceEngine.recordAndTranscribe(
+            context, lang,
+            onResult = { result ->
+                listening = false
+                transcribing = false
+                result.fold(
+                    onSuccess = { text ->
+                        if (AppSettings.config.value.autoSendVoice) {
+                            session.send(text, scope)
+                        } else {
+                            transcript = text
+                        }
+                    },
+                    onFailure = { e -> voiceError = e.message }
+                )
+            }
+        )
+        // brief moment while AudioRecord warms up counts as listening already
+    }
 
     Box(
         modifier = Modifier
@@ -108,15 +189,28 @@ fun AssistantOverlay(onDismiss: () -> Unit) {
         if (expanded) {
             FullscreenAssistant(
                 session = session,
+                listening = listening,
+                transcript = transcript,
+                voiceError = voiceError,
+                onMic = { if (listening) listening = false else startVoice() },
                 onCollapse = { expanded = false },
                 onDismiss = onDismiss
             )
         } else {
             CompactAssistantSheet(
                 session = session,
+                listening = listening,
+                transcript = transcript,
+                voiceError = voiceError,
+                onMic = { if (listening) listening = false else startVoice() },
                 onExpand = { expanded = true },
                 onDismiss = onDismiss
             )
+        }
+
+        // Auto-start voice on open — the base app behavior you liked
+        LaunchedEffect(Unit) {
+            if (AppSettings.config.value.autoStartVoice) startVoice()
         }
     }
 }
@@ -124,6 +218,10 @@ fun AssistantOverlay(onDismiss: () -> Unit) {
 @Composable
 private fun CompactAssistantSheet(
     session: ChatSession,
+    listening: Boolean,
+    transcript: String,
+    voiceError: String?,
+    onMic: () -> Unit,
     onExpand: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -133,8 +231,9 @@ private fun CompactAssistantSheet(
 
     val lastUser = session.messages.lastOrNull { it.role == "user" }
     val lastAssistant = session.messages.lastOrNull { it.role == "assistant" }
+    val showVoice = listening || transcript.isNotEmpty() || voiceError != null
     val hasContent = lastUser != null || lastAssistant != null ||
-        session.status.isNotEmpty() || session.reasoning.isNotEmpty()
+        session.status.isNotEmpty() || session.reasoning.isNotEmpty() || showVoice
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
@@ -219,7 +318,6 @@ private fun CompactAssistantSheet(
                         }
                     }
 
-                    // Response area — the LAST exchange only (compact view)
                     if (hasContent) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Column(
@@ -254,7 +352,7 @@ private fun CompactAssistantSheet(
                                     ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
-                                if (session.busy && session.status.isEmpty()) {
+                                if (session.busy || session.status.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
                             }
@@ -281,15 +379,50 @@ private fun CompactAssistantSheet(
                                     linkColor = MaterialTheme.colorScheme.primary
                                 )
                             }
+
+                            if (listening) {
+                                if (lastUser != null) Spacer(modifier = Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Listening...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            if (transcript.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "You: $transcript",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            voiceError?.let { err ->
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Voice error: $err",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
-                        LaunchedEffect(lastAssistant?.content, session.reasoning) {
+                        LaunchedEffect(lastAssistant?.content, session.reasoning, transcript) {
                             scrollState.animateScrollTo(scrollState.maxValue)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Input row (mic button lands with voice input, step 5)
+                    // Input row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -302,7 +435,7 @@ private fun CompactAssistantSheet(
                             placeholder = { Text("Ask anything...") },
                             shape = RoundedCornerShape(28.dp),
                             singleLine = true,
-                            enabled = !session.busy,
+                            enabled = !session.busy && !listening,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
@@ -310,19 +443,35 @@ private fun CompactAssistantSheet(
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
                             )
                         )
-                        AnimatedVisibility(visible = !session.busy && input.isNotEmpty()) {
-                            FilledIconButton(
-                                onClick = {
-                                    session.send(input, scope)
-                                    input = ""
-                                },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Send, "Send",
-                                    tint = MaterialTheme.colorScheme.onPrimary
-                                )
-                            }
+                        FilledIconButton(
+                            onClick = {
+                                session.send(input, scope)
+                                input = ""
+                            },
+                            enabled = input.isNotBlank() && !session.busy,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send, "Send",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        FilledIconButton(
+                            onClick = onMic,
+                            modifier = Modifier.size(48.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (listening)
+                                    MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(
+                                if (listening) Icons.Default.Stop else Icons.Default.Mic,
+                                if (listening) "Stop listening" else "Voice input",
+                                tint = if (listening) MaterialTheme.colorScheme.onError
+                                else MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
                     }
                 }
@@ -335,6 +484,10 @@ private fun CompactAssistantSheet(
 @Composable
 private fun FullscreenAssistant(
     session: ChatSession,
+    listening: Boolean,
+    transcript: String,
+    voiceError: String?,
+    onMic: () -> Unit,
     onCollapse: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -352,13 +505,15 @@ private fun FullscreenAssistant(
                             cfg.model.ifBlank { "AndroidAssist" },
                             style = MaterialTheme.typography.titleMedium
                         )
-                        if (session.status.isNotEmpty()) {
-                            Text(
-                                session.status,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            when {
+                                listening -> "Listening..."
+                                session.busy -> session.status.ifBlank { "Thinking..." }
+                                else -> "Ready"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 navigationIcon = {
@@ -401,7 +556,7 @@ private fun FullscreenAssistant(
                         placeholder = { Text(if (session.busy) "Generating..." else "Ask anything...") },
                         shape = RoundedCornerShape(24.dp),
                         maxLines = 4,
-                        enabled = !session.busy
+                        enabled = !session.busy && !listening
                     )
                     FilledIconButton(
                         onClick = {
@@ -420,6 +575,22 @@ private fun FullscreenAssistant(
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                         }
                     }
+                    FilledIconButton(
+                        onClick = onMic,
+                        modifier = Modifier.size(48.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (listening)
+                                MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            if (listening) Icons.Default.Stop else Icons.Default.Mic,
+                            if (listening) "Stop listening" else "Voice input",
+                            tint = if (listening) MaterialTheme.colorScheme.onError
+                            else MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
         }
@@ -436,8 +607,14 @@ private fun FullscreenAssistant(
                     .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (session.messages.isEmpty()) {
+                if (session.messages.isEmpty() && transcript.isEmpty()) {
                     item { WelcomeMessage() }
+                }
+                if (listening && transcript.isEmpty()) {
+                    item { ThinkingBubble("Listening...") }
+                }
+                if (transcript.isNotEmpty()) {
+                    item { MessageBubble(ChatMessage("user", transcript)) }
                 }
                 items(session.messages) { msg -> MessageBubble(msg) }
                 if (session.reasoning.isNotEmpty()) {
@@ -446,16 +623,25 @@ private fun FullscreenAssistant(
                 if (session.busy && session.messages.lastOrNull()?.role != "assistant") {
                     item { ThinkingBubble(session.status) }
                 }
+                voiceError?.let { err ->
+                    item {
+                        Text(
+                            "Voice error: $err",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
 
             LaunchedEffect(
                 session.messages.size,
                 session.messages.lastOrNull()?.content,
-                session.reasoning
+                session.reasoning,
+                transcript
             ) {
-                if (session.messages.isNotEmpty()) {
-                    listState.animateScrollToItem(session.messages.lastIndex)
-                }
+                val last = session.messages.lastIndex
+                if (last >= 0) listState.animateScrollToItem(min(last, listState.layoutInfo.totalItemsNeeded - 1).coerceAtLeast(0))
             }
         }
     }
