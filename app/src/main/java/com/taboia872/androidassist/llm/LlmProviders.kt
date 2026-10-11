@@ -10,15 +10,16 @@ data class LlmProvider(
     val id: String,
     val displayName: String,
     val defaultBaseUrl: String,
-    val requiresKey: Boolean
+    val requiresKey: Boolean,
+    val keyHint: String = ""
 )
 
 object LlmProviders {
-    val OPENROUTER = LlmProvider("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", true)
-    val GROQ = LlmProvider("groq", "Groq", "https://api.groq.com/openai/v1", true)
-    val OLLAMA_CLOUD = LlmProvider("ollama", "Ollama Cloud", "https://ollama.com/v1", true)
-    val NVIDIA = LlmProvider("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", true)
-    val CUSTOM = LlmProvider("custom", "Custom (e.g. Ollama on PC)", "", false)
+    val OPENROUTER = LlmProvider("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", true, "Get a key at openrouter.ai/keys")
+    val GROQ = LlmProvider("groq", "Groq", "https://api.groq.com/openai/v1", true, "Free at console.groq.com/keys")
+    val OLLAMA_CLOUD = LlmProvider("ollama", "Ollama Cloud", "https://ollama.com/v1", true, "Create at ollama.com/settings/keys")
+    val NVIDIA = LlmProvider("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", true, "Create at build.nvidia.com/settings")
+    val CUSTOM = LlmProvider("custom", "Custom (e.g. Ollama on PC)", "", false, "")
 
     val ALL = listOf(OPENROUTER, GROQ, OLLAMA_CLOUD, NVIDIA, CUSTOM)
 

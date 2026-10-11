@@ -1,93 +1,532 @@
 package com.taboia872.androidassist.ui
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.taboia872.androidassist.llm.LlmClient
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.taboia872.androidassist.BuildConfig
 import com.taboia872.androidassist.llm.LlmProviders
+import com.taboia872.androidassist.llm.ModelCatalog
+import com.taboia872.androidassist.llm.ModelInfo
 import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.launch
 
+private enum class SettingsCategory(val label: String) {
+    AI("AI"),
+    SYSTEM("System")
+}
+
 /**
- * Single settings screen driven entirely by AppSettings — there is exactly one
- * place where provider/key/model are read and written, so screens cannot
- * disagree with each other.
+ * Settings in the base app's visual language: overview card on top, category
+ * tabs, sections as rounded cards with icon list items, choices in large
+ * dialogs. Driven entirely by AppSettings — one source of truth.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val cfg by AppSettings.config.collectAsState()
     val provider = LlmProviders.byId(cfg.providerId)
-    val scope = rememberCoroutineScope()
 
-    var models by remember { mutableStateOf<List<String>?>(null) }
-    var modelsError by remember { mutableStateOf<String?>(null) }
-    var loadingModels by remember { mutableStateOf(false) }
+    var settingsCategoryName by rememberSaveable { mutableStateOf(SettingsCategory.AI.name) }
+    val settingsCategory = SettingsCategory.valueOf(settingsCategoryName)
+    val settingsScrollState = rememberScrollState()
 
-    // Live model list from the ACTIVE endpoint, every time the endpoint changes
-    LaunchedEffect(cfg.baseUrl, cfg.apiKey) {
-        models = null
-        modelsError = null
-        if (cfg.baseUrl.isBlank()) return@LaunchedEffect
-        loadingModels = true
-        LlmClient.models(cfg.baseUrl, cfg.apiKey).fold(
-            onSuccess = { models = it.sorted() },
-            onFailure = { modelsError = it.message }
-        )
-        loadingModels = false
-    }
+    var showProviderDialog by remember { mutableStateOf(false) }
+    var showKeyDialog by remember { mutableStateOf(false) }
+    var showModelDialog by remember { mutableStateOf(false) }
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var showPromptDialog by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
+    LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
+
+    val keyStatus = if (provider.requiresKey) {
+        if (cfg.apiKey.isNotBlank()) "${provider.displayName} key saved"
+        else "${provider.displayName} key needed"
+    } else "No key required"
+
+    val modelLabel = cfg.model.ifBlank { "Select model" }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
             TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+                )
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(settingsScrollState)
+                    .padding(bottom = 20.dp)
+            ) {
+                SettingsOverviewCard(
+                    provider = provider.displayName,
+                    model = modelLabel,
+                    keyStatus = keyStatus
+                )
+
+                SettingsCategoryTabs(
+                    selectedCategory = settingsCategory,
+                    onCategorySelected = { settingsCategoryName = it.name }
+                )
+
+                if (settingsCategory == SettingsCategory.AI) {
+                    SettingsSection(title = "API Configuration") {
+                        SettingsItem(
+                            icon = Icons.Default.Cloud,
+                            title = "Cloud Provider",
+                            subtitle = provider.displayName,
+                            onClick = { showProviderDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Key,
+                            title = "${provider.displayName} API Key",
+                            subtitle = if (cfg.apiKey.isNotBlank()) "Configured ✓"
+                            else if (provider.requiresKey) "Required • saved encrypted"
+                            else "Not required for this provider",
+                            onClick = { showKeyDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Link,
+                            title = "Base URL",
+                            subtitle = cfg.baseUrl.ifBlank { "Not set" },
+                            onClick = { showUrlDialog = true }
+                        )
+                    }
+
+                    SettingsSection(title = "AI Model") {
+                        SettingsItem(
+                            icon = Icons.Default.SmartToy,
+                            title = "Model",
+                            subtitle = modelLabel,
+                            onClick = { showModelDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Refresh,
+                            title = "Refresh model catalog",
+                            subtitle = "Fetch the live list from ${provider.displayName}",
+                            onClick = { showModelDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Edit,
+                            title = "System Prompt",
+                            subtitle = cfg.systemPrompt.take(50) +
+                                if (cfg.systemPrompt.length > 50) "..." else "",
+                            onClick = { showPromptDialog = true }
+                        )
+                    }
                 }
+
+                if (settingsCategory == SettingsCategory.SYSTEM) {
+                    SettingsSection(title = "About") {
+                        SettingsItem(
+                            icon = Icons.Default.Info,
+                            title = "AndroidAssist",
+                            subtitle = "v${BuildConfig.VERSION_NAME}",
+                            onClick = {}
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+
+    if (showProviderDialog) {
+        ProviderSelectionDialog(
+            currentProviderId = cfg.providerId,
+            onProviderSelected = {
+                AppSettings.setProvider(it)
+                showProviderDialog = false
+            },
+            onDismiss = { showProviderDialog = false }
+        )
+    }
+
+    if (showKeyDialog) {
+        ProviderKeyDialog(
+            providerName = provider.displayName,
+            hint = provider.keyHint,
+            hasExistingKey = cfg.apiKey.isNotBlank(),
+            onApiKeySaved = { key ->
+                AppSettings.setApiKey(provider.id, key)
+                showKeyDialog = false
+            },
+            onDismiss = { showKeyDialog = false }
+        )
+    }
+
+    if (showUrlDialog) {
+        BaseUrlDialog(
+            currentUrl = cfg.baseUrl,
+            onUrlSaved = { url ->
+                AppSettings.update { it.copy(baseUrl = url.trim()) }
+                showUrlDialog = false
+            },
+            onDismiss = { showUrlDialog = false }
+        )
+    }
+
+    if (showModelDialog) {
+        ModelSelectionDialog(
+            baseUrl = cfg.baseUrl,
+            apiKey = cfg.apiKey,
+            currentModel = cfg.model,
+            onModelSelected = { modelId ->
+                AppSettings.update { it.copy(model = modelId) }
+                showModelDialog = false
+            },
+            onDismiss = { showModelDialog = false }
+        )
+    }
+
+    if (showPromptDialog) {
+        SystemPromptDialog(
+            currentPrompt = cfg.systemPrompt,
+            onPromptSaved = { prompt ->
+                AppSettings.update { it.copy(systemPrompt = prompt) }
+                showPromptDialog = false
+            },
+            onDismiss = { showPromptDialog = false }
+        )
+    }
+}
+
+// ---------------------------------------------------------------- components
+
+@Composable
+private fun SettingsCategoryTabs(
+    selectedCategory: SettingsCategory,
+    onCategorySelected: (SettingsCategory) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SettingsCategory.entries.forEach { category ->
+            FilterChip(
+                selected = selectedCategory == category,
+                onClick = { onCategorySelected(category) },
+                label = { Text(category.label) }
             )
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            // ---- Provider ----
-            SectionTitle("AI Provider")
-            LlmProviders.ALL.forEach { p ->
-                Surface(
-                    onClick = { AppSettings.setProvider(p.id) },
-                    shape = MaterialTheme.shapes.medium,
-                    color = if (p.id == cfg.providerId) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.fillMaxWidth()
+    }
+}
+
+@Composable
+private fun SettingsOverviewCard(
+    provider: String,
+    model: String,
+    keyStatus: String
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 4.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
                 ) {
+                    Icon(
+                        Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Assistant setup",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        keyStatus,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsStatusChip(
+                    icon = Icons.Default.Cloud,
+                    label = provider,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsStatusChip(
+                icon = Icons.Default.SmartToy,
+                label = model,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusChip(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.defaultMinSize(minHeight = 40.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp)
+        )
+        Surface(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            tonalElevation = 0.dp
+        ) {
+            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        },
+        trailingContent = {
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+            )
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        modifier = Modifier
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(MaterialTheme.shapes.large)
+            .defaultMinSize(minHeight = 72.dp)
+            .clickable(onClick = onClick)
+    )
+}
+
+// ------------------------------------------------------------------- dialogs
+
+@Composable
+private fun ProviderSelectionDialog(
+    currentProviderId: String,
+    onProviderSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cloud Provider", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                LlmProviders.ALL.forEach { p ->
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onProviderSelected(p.id) }
+                            .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = p.id == cfg.providerId, onClick = { AppSettings.setProvider(p.id) })
-                        Spacer(Modifier.width(8.dp))
+                        RadioButton(
+                            selected = currentProviderId == p.id,
+                            onClick = { onProviderSelected(p.id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(p.displayName, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                p.defaultBaseUrl.ifBlank { "your own base URL" },
+                                p.defaultBaseUrl.removePrefix("https://")
+                                    .ifBlank { "your own base URL" },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -95,112 +534,537 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
 
-            // ---- Base URL (editable; prefilled by provider default) ----
-            SectionTitle("Base URL")
-            OutlinedTextField(
-                value = cfg.baseUrl,
-                onValueChange = { url -> AppSettings.update { it.copy(baseUrl = url) } },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("http://192.168.0.10:11434/v1") }
-            )
+@Composable
+private fun ProviderKeyDialog(
+    providerName: String,
+    hint: String,
+    hasExistingKey: Boolean,
+    onApiKeySaved: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var apiKey by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
 
-            // ---- API key ----
-            if (provider.requiresKey) {
-                SectionTitle("${provider.displayName} API Key")
-                OutlinedTextField(
-                    value = cfg.apiKey,
-                    onValueChange = { key -> AppSettings.update { it.copy(apiKey = key) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
-                )
-                val ok = cfg.apiKey.isNotBlank()
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (ok) Icons.Default.CheckCircle else Icons.Default.Key,
-                        contentDescription = null,
-                        tint = if (ok) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.error
-                    )
-                    Spacer(Modifier.width(8.dp))
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$providerName API Key") },
+        text = {
+            Column {
+                if (hasExistingKey) {
                     Text(
-                        if (ok) "Key saved (encrypted)" else "Key required for this provider",
-                        style = MaterialTheme.typography.bodySmall
+                        "An API key is already configured. Enter a new key to replace it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-            }
-
-            // ---- Model (live catalog from the active endpoint) ----
-            SectionTitle("Model")
-            when {
-                loadingModels -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Loading models…")
-                }
-                modelsError != null -> Text(
-                    "Could not load models: $modelsError",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                models != null -> {
-                    val current = cfg.model.ifBlank { null }
-                    models!!.forEach { m ->
-                        Surface(
-                            onClick = { AppSettings.update { it.copy(model = m) } },
-                            color = if (m == current) MaterialTheme.colorScheme.secondaryContainer
-                            else MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.fillMaxWidth()
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    visualTransformation = if (visible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { visible = !visible }) {
+                            Icon(
+                                if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                "Toggle"
+                            )
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onApiKeySaved(apiKey) },
+                enabled = apiKey.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun BaseUrlDialog(
+    currentUrl: String,
+    onUrlSaved: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var url by remember { mutableStateOf(currentUrl) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Base URL") },
+        text = {
+            Column {
+                Text(
+                    "OpenAI-compatible endpoint. Leave the provider default unless you run your own server (e.g. Ollama on http://192.168.0.10:11434/v1).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Base URL") },
+                    placeholder = { Text("http://192.168.0.10:11434/v1") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onUrlSaved(url) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/**
+ * THE model picker: fetches the live catalog from the ACTIVE server with a
+ * refresh button, search filter (OpenRouter has 300+ entries), free/premium
+ * grouping, vision chips, and a manual-ID fallback.
+ */
+@Composable
+private fun ModelSelectionDialog(
+    baseUrl: String,
+    apiKey: String,
+    currentModel: String,
+    onModelSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var models by remember { mutableStateOf<List<ModelInfo>?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var showCustomInput by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun load(force: Boolean) {
+        loading = true
+        error = null
+        scope.launch {
+            ModelCatalog.fetch(baseUrl, apiKey, forceRefresh = force).fold(
+                onSuccess = { models = it },
+                onFailure = { error = it.message }
+            )
+            loading = false
+        }
+    }
+
+    // Auto-fetch on open (cache makes reopening instant)
+    LaunchedEffect(baseUrl, apiKey) { load(force = false) }
+
+    if (showCustomInput) {
+        CustomModelDialog(
+            currentCustomModel = currentModel,
+            onModelSaved = { modelId ->
+                if (modelId.isNotBlank()) onModelSelected(modelId.trim())
+            },
+            onDismiss = { showCustomInput = false }
+        )
+        return
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.8f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column {
+                TopAppBar(
+                    title = { Text("Select Model") },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { load(force = true) },
+                            enabled = !loading
                         ) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                                RadioButton(selected = m == current, onClick = { AppSettings.update { it.copy(model = m) } })
-                                Spacer(Modifier.width(8.dp))
-                                Text(m, style = MaterialTheme.typography.bodyMedium)
+                            Icon(Icons.Default.Refresh, "Refresh catalog")
+                        }
+                    }
+                )
+
+                // Search/filter — essential for OpenRouter-sized catalogs
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text("Filter models...") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp)
+                )
+
+                when {
+                    loading -> Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Loading models from server...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    error != null -> Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.Cloud,
+                                null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Could not load models:\n$error",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { load(force = true) }) {
+                                    Icon(Icons.Default.Refresh, null)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Retry")
+                                }
+                                OutlinedButton(onClick = { showCustomInput = true }) {
+                                    Text("Type model ID")
+                                }
+                            }
+                        }
+                    }
+
+                    else -> {
+                        val all = models.orEmpty()
+                        val q = query.trim().lowercase()
+                        val filtered = if (q.isEmpty()) all
+                        else all.filter {
+                            it.id.lowercase().contains(q) || it.name.lowercase().contains(q)
+                        }
+
+                        if (filtered.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    if (all.isEmpty()) "No models available"
+                                    else "No models match \"$query\"",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                val freeModels = filtered.filter { it.isFree }
+                                val premiumModels = filtered.filter { !it.isFree }
+
+                                if (freeModels.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            "Free Models",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(
+                                                start = 16.dp, end = 16.dp, top = 8.dp
+                                            )
+                                        )
+                                    }
+                                    items(freeModels) { model ->
+                                        ModelItem(
+                                            model = model,
+                                            isSelected = model.id == currentModel,
+                                            onClick = { onModelSelected(model.id) }
+                                        )
+                                    }
+                                }
+                                if (premiumModels.isNotEmpty()) {
+                                    item {
+                                        Text(
+                                            if (freeModels.isNotEmpty()) "Premium Models"
+                                            else "Available Models",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(
+                                                start = 16.dp, end = 16.dp, top = 8.dp
+                                            )
+                                        )
+                                    }
+                                    items(premiumModels) { model ->
+                                        ModelItem(
+                                            model = model,
+                                            isSelected = model.id == currentModel,
+                                            onClick = { onModelSelected(model.id) }
+                                        )
+                                    }
+                                }
+
+                                item {
+                                    Text(
+                                        "Manual",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(
+                                            start = 16.dp, end = 16.dp, top = 8.dp
+                                        )
+                                    )
+                                }
+                                item {
+                                    ListItem(
+                                        headlineContent = {
+                                            Text(
+                                                "Custom model...",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        supportingContent = {
+                                            Text(
+                                                if (currentModel.isNotBlank()) "Current: $currentModel"
+                                                else "Type any model ID this server accepts"
+                                            )
+                                        },
+                                        leadingContent = {
+                                            RadioButton(
+                                                selected = false,
+                                                onClick = { showCustomInput = true }
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .clickable { showCustomInput = true }
+                                            .padding(vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Current: ", style = MaterialTheme.typography.bodySmall)
-                Text(
-                    cfg.model.ifBlank { "not selected" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { scope.launch { /* re-run LaunchedEffect via key bump */ } }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+
+                AnimatedVisibility(visible = models != null) {
+                    Text(
+                        "${models?.size ?: 0} models • live from server",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 1
+                    )
                 }
             }
-            // Manual model id fallback (custom endpoints with odd catalogs)
-            OutlinedTextField(
-                value = cfg.model,
-                onValueChange = { m -> AppSettings.update { it.copy(model = m) } },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Or type a model id") }
-            )
-
-            // ---- System prompt ----
-            SectionTitle("System Prompt")
-            OutlinedTextField(
-                value = cfg.systemPrompt,
-                onValueChange = { s -> AppSettings.update { it.copy(systemPrompt = s) } },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3
-            )
         }
     }
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary
+private fun ModelItem(
+    model: ModelInfo,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                model.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(model.id, style = MaterialTheme.typography.bodySmall)
+                Text(model.description)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (model.isFree) {
+                        AssistChip(
+                            onClick = {},
+                            enabled = false,
+                            label = { Text("Free") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Savings, null, modifier = Modifier.size(14.dp))
+                            }
+                        )
+                    }
+                    if (model.supportsVision) {
+                        AssistChip(
+                            onClick = {},
+                            enabled = false,
+                            label = { Text("Vision") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(14.dp))
+                            }
+                        )
+                    }
+                }
+            }
+        },
+        leadingContent = {
+            RadioButton(selected = isSelected, onClick = onClick)
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surface
+        ),
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick)
     )
+}
+
+@Composable
+private fun CustomModelDialog(
+    currentCustomModel: String,
+    onModelSaved: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var modelId by remember { mutableStateOf(currentCustomModel) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom Model ID") },
+        text = {
+            Column {
+                Text(
+                    "Enter a model ID this server accepts (e.g. llama-3.3-70b-versatile).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = modelId,
+                    onValueChange = { modelId = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Model ID") },
+                    placeholder = { Text("provider/model-name") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onModelSaved(modelId) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun SystemPromptDialog(
+    currentPrompt: String,
+    onPromptSaved: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var prompt by remember { mutableStateOf(currentPrompt) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.7f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+            ) {
+                Text("System Prompt", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "This prompt defines how the AI assistant behaves.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    label = { Text("System Prompt") },
+                    placeholder = { Text("Enter instructions for the AI...") },
+                    shape = RoundedCornerShape(16.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            prompt = "You are a helpful, concise assistant. Always reply in the user's language."
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Reset") }
+                    Button(
+                        onClick = { onPromptSaved(prompt) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Save") }
+                }
+            }
+        }
+    }
 }

@@ -9,8 +9,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.HttpURLConnection
 import java.net.URL
-import javax.net.ssl.HttpsURLConnection
 
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
@@ -22,33 +22,9 @@ sealed class StreamEvent {
  * Minimal, provider-agnostic OpenAI-compatible client. Reads endpoint, key
  * and model from AppSettings at call time — switching providers in Settings
  * takes effect on the very next message, no restart, no service reload.
+ * Model listing lives in ModelCatalog (rich metadata), not here.
  */
 object LlmClient {
-
-    suspend fun models(baseUrl: String, apiKey: String): Result<List<String>> {
-        if (baseUrl.isBlank()) return Result.failure(IllegalArgumentException("Base URL is empty"))
-        return fetchModels(baseUrl.trimEnd('/'), apiKey)
-    }
-
-    private suspend fun fetchModels(baseUrl: String, apiKey: String): Result<List<String>> =
-        runCatching {
-            val conn = (URL("$baseUrl/models").openConnection() as HttpsURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
-            }
-            try {
-                if (conn.responseCode != 200) {
-                    throw RuntimeException("models: HTTP ${conn.responseCode}")
-                }
-                val data = JSONObject(conn.inputStream.bufferedReader().readText())
-                    .optJSONArray("data") ?: JSONArray()
-                (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("id") }
-            } finally {
-                conn.disconnect()
-            }
-        }
 
     /**
      * Streaming chat completion. Messages: [{role, content}].
@@ -79,7 +55,10 @@ object LlmClient {
             })
         }
 
-        val conn = (URL("${cfg.baseUrl.trimEnd('/')}/chat/completions").openConnection() as HttpsURLConnection).apply {
+        // HttpURLConnection (not Https): custom endpoints may be plain http
+        // (e.g. Ollama on http://192.168.0.10:11434/v1) and openConnection()
+        // returns a plain connection for those.
+        val conn = (URL("${cfg.baseUrl.trimEnd('/')}/chat/completions").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 30_000
             readTimeout = 120_000
