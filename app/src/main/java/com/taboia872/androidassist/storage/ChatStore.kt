@@ -12,20 +12,12 @@ import java.io.File
  */
 object ChatStore {
 
-    private data class ChatSummary(
-        val id: String,
-        val title: String,
-        val timestamp: Long,
-        val messageCount: Int,
-        val preview: String
-    )
-
     fun dir(context: Context): File =
         File(context.filesDir, "chats").apply { mkdirs() }
 
     fun currentId(context: Context): String? =
         File(context.filesDir, "assistant_state.json")
-            .takeIf { it.exists() }?.readText()?.trim().takeIf { it.isNotBlank() }
+            .takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotBlank() }
 
     fun setCurrentId(context: Context, id: String?) {
         val f = File(context.filesDir, "assistant_state.json")

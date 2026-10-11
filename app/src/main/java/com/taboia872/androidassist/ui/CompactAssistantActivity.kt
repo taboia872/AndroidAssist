@@ -142,16 +142,14 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
     var expanded by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
 
-    // ---- Voice state machine: Idle / Listening / Transcribing ----
+    // ---- Voice state machine: Idle / Listening ----
     var listening by remember { mutableStateOf(false) }
-    var transcribing by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf("") }
     var voiceError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     fun startVoice() {
-        if (listening || transcribing || session.busy) return
+        if (listening || session.busy) return
         val cfg = AppSettings.config.value
         if (!VoiceEngine.hasMicPermission(context)) {
             requestMic()
@@ -167,7 +165,6 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
             context, lang,
             onResult = { result ->
                 listening = false
-                transcribing = false
                 result.fold(
                     onSuccess = { text ->
                         if (AppSettings.config.value.autoSendVoice) {

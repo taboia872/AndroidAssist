@@ -647,6 +647,7 @@ private fun BaseUrlDialog(
  * refresh button, search filter (OpenRouter has 300+ entries), free/premium
  * grouping, vision chips, and a manual-ID fallback.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSelectionDialog(
     baseUrl: String,
