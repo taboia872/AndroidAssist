@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.OpenInFull
@@ -74,10 +75,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.voice.VoiceEngine
 import java.util.Locale
-import kotlin.math.min
 
 /**
  * The "bloquinho": bottom-sheet assistant opened by the system assistant
@@ -128,8 +129,18 @@ class CompactAssistantActivity : ComponentActivity() {
 
 @Composable
 fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
-    val session = remember { ChatSession() }
+    val context = LocalContext.current
+    val session = remember {
+        ChatSession(persistenceContext = context.applicationContext).also { s ->
+            // Overlay conversations continue the last chat — picking up where
+            // you left off in the app is the natural assistant flow.
+            ChatStore.currentId(context.applicationContext)?.let { id ->
+                s.loadFrom(context.applicationContext, id)
+            }
+        }
+    }
     var expanded by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
 
     // ---- Voice state machine: Idle / Listening / Transcribing ----
     var listening by remember { mutableStateOf(false) }
@@ -186,18 +197,26 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
                 onClick = onDismiss
             )
     ) {
-        if (expanded) {
-            FullscreenAssistant(
+        when {
+            showHistory -> ChatHistoryScreen(
+                onChatSelected = { chatId ->
+                    session.loadFrom(context.applicationContext, chatId)
+                    showHistory = false
+                },
+                onBack = { showHistory = false },
+                onDismiss = onDismiss
+            )
+            expanded -> FullscreenAssistant(
                 session = session,
                 listening = listening,
                 transcript = transcript,
                 voiceError = voiceError,
                 onMic = { if (listening) listening = false else startVoice() },
                 onCollapse = { expanded = false },
-                onDismiss = onDismiss
+                onDismiss = onDismiss,
+                onShowHistory = { showHistory = true }
             )
-        } else {
-            CompactAssistantSheet(
+            else -> CompactAssistantSheet(
                 session = session,
                 listening = listening,
                 transcript = transcript,
@@ -489,9 +508,11 @@ private fun FullscreenAssistant(
     voiceError: String?,
     onMic: () -> Unit,
     onCollapse: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShowHistory: () -> Unit = {}
 ) {
     val cfg by AppSettings.config.collectAsState()
+    val context = LocalContext.current
     var input by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -522,8 +543,11 @@ private fun FullscreenAssistant(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { session.reset() }) {
+                    IconButton(onClick = { session.reset(context.applicationContext) }) {
                         Icon(Icons.Default.Refresh, "New Chat")
+                    }
+                    IconButton(onClick = onShowHistory) {
+                        Icon(Icons.Default.History, "Chat History")
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, "Close")
@@ -640,8 +664,9 @@ private fun FullscreenAssistant(
                 session.reasoning,
                 transcript
             ) {
-                val last = session.messages.lastIndex
-                if (last >= 0) listState.animateScrollToItem(min(last, listState.layoutInfo.totalItemsNeeded - 1).coerceAtLeast(0))
+                if (session.messages.isNotEmpty()) {
+                    listState.animateScrollToItem(session.messages.lastIndex)
+                }
             }
         }
     }

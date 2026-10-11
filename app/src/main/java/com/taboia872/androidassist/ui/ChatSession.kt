@@ -5,18 +5,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.taboia872.androidassist.llm.LlmClient
 import com.taboia872.androidassist.llm.StreamEvent
+import com.taboia872.androidassist.storage.ChatStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
 data class ChatMessage(val role: String, val content: String)
 
 /**
- * One conversation: message list + streaming state + send(). Shared by the
- * main chat screen and the assistant overlay so both behave identically.
- * All state is Compose state — every screen showing a ChatSession updates
- * live while tokens stream in.
+ * One conversation: message list + streaming state + send() + persistence.
+ * Shared by the main chat screen and the assistant overlay so both behave
+ * identically. Chats auto-save after every assistant reply and can be
+ * reloaded by id (history screens pass a stored chat in).
  */
-class ChatSession {
+class ChatSession(private val persistenceContext: android.content.Context? = null) {
 
     var messages by mutableStateOf(listOf<ChatMessage>())
         private set
@@ -30,6 +34,32 @@ class ChatSession {
     /** Short status label: "Thinking..." / "Typing..." while busy. */
     var status by mutableStateOf("")
         private set
+
+    var chatId by mutableStateOf(UUID.randomUUID().toString())
+        private set
+
+    private val ctx: android.content.Context?
+        get() = persistenceContext
+
+    /** Restore a saved chat by id (history "continue"). */
+    fun loadFrom(context: android.content.Context, id: String) {
+        val loaded = ChatStore.load(context, id) ?: return
+        chatId = loaded.id
+        messages = loaded.messages.map { ChatMessage(it.first, it.second) }
+        reasoning = ""
+        status = ""
+        ChatStore.setCurrentId(context, id)
+    }
+
+    /** Start a fresh chat (New Chat). */
+    fun reset(context: android.content.Context? = null) {
+        chatId = UUID.randomUUID().toString()
+        messages = emptyList()
+        reasoning = ""
+        status = ""
+        busy = false
+        context?.let { ChatStore.setCurrentId(it, chatId) }
+    }
 
     fun send(query: String, scope: CoroutineScope) {
         val q = query.trim()
@@ -47,8 +77,6 @@ class ChatSession {
                     is StreamEvent.Content -> {
                         status = "Typing..."
                         answer.append(event.text)
-                        // Replace the streaming assistant bubble — never the
-                        // user's message (old code ate the user bubble).
                         val base = if (messages.lastOrNull()?.role == "assistant")
                             messages.dropLast(1) else messages
                         messages = base + ChatMessage("assistant", answer.toString())
@@ -63,13 +91,20 @@ class ChatSession {
             busy = false
             status = ""
             reasoning = ""
-        }
-    }
 
-    fun reset() {
-        messages = emptyList()
-        reasoning = ""
-        status = ""
-        busy = false
+            // Auto-save the finished exchange (skip pure-error replies)
+            val c = ctx
+            if (c != null && messages.isNotEmpty() &&
+                messages.none { it.content.startsWith("⚠️") }
+            ) {
+                withContext(Dispatchers.IO) {
+                    ChatStore.save(
+                        c, chatId,
+                        messages.map { it.role to it.content }
+                    )
+                    ChatStore.setCurrentId(c, chatId)
+                }
+            }
+        }
     }
 }

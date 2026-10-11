@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.ui.ChatHistoryScreen
 import com.taboia872.androidassist.ui.ChatScreen
 import com.taboia872.androidassist.ui.SettingsScreen
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
@@ -19,12 +20,23 @@ class MainActivity : ComponentActivity() {
         AppSettings.init(this)
         enableEdgeToEdge()
         setContent {
-            var showSettings by remember { mutableStateOf(false) }
+            var screen by remember { mutableStateOf("chat") }
+            var resumeChatId by remember { mutableStateOf<String?>(null) }
             AndroidAssistTheme {
-                if (showSettings) {
-                    SettingsScreen(onBack = { showSettings = false })
-                } else {
-                    ChatScreen(onOpenSettings = { showSettings = true })
+                when (screen) {
+                    "settings" -> SettingsScreen(onBack = { screen = "chat" })
+                    "history" -> ChatHistoryScreen(
+                        onChatSelected = { chatId ->
+                            resumeChatId = chatId
+                            screen = "chat"
+                        },
+                        onBack = { screen = "chat" }
+                    )
+                    else -> ChatScreen(
+                        resumeChatId = resumeChatId,
+                        onOpenSettings = { screen = "settings" },
+                        onOpenHistory = { screen = "history" }
+                    )
                 }
             }
         }

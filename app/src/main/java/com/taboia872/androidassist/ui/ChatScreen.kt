@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,19 +42,31 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.storage.ChatStore
 import kotlinx.coroutines.launch
 
 /**
- * Main chat screen — same ChatSession machinery the overlay uses, so both
- * surfaces behave identically.
+ * Main chat screen — same ChatSession machinery the overlay uses. Restores
+ * the last chat on open; History button opens the saved-chats screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(onOpenSettings: () -> Unit) {
+fun ChatScreen(
+    resumeChatId: String? = null,
+    onOpenSettings: () -> Unit,
+    onOpenHistory: () -> Unit
+) {
     val cfg by AppSettings.config.collectAsState()
-    val session = remember { ChatSession() }
+    val context = LocalContext.current
+    val session = remember {
+        ChatSession(persistenceContext = context.applicationContext).also { s ->
+            val restore = resumeChatId ?: ChatStore.currentId(context.applicationContext)
+            if (restore != null) s.loadFrom(context.applicationContext, restore)
+        }
+    }
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -76,6 +90,12 @@ fun ChatScreen(onOpenSettings: () -> Unit) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { session.reset(context.applicationContext) }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "New Chat")
+                    }
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(Icons.Default.History, contentDescription = "Chat History")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
