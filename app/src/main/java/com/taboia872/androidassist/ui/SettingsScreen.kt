@@ -1,5 +1,8 @@
 package com.taboia872.androidassist.ui
 
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,7 +29,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Edit
@@ -80,6 +85,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -278,6 +284,46 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
 
                 if (settingsCategory == SettingsCategory.SYSTEM) {
+                    val context = LocalContext.current
+                    val roleManager = remember {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                            context.getSystemService(android.app.role.RoleManager::class.java)
+                        else null
+                    }
+                    val intentLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.StartActivityForResult()
+                    ) { }
+                    val isDefaultAssistant = remember {
+                        roleManager?.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) == true &&
+                            roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
+                    }
+                    SettingsSection(title = "Assistant") {
+                        if (!isDefaultAssistant) {
+                            SettingsItem(
+                                icon = Icons.Default.AutoAwesome,
+                                title = "Set as default assistant",
+                                subtitle = "Make AndroidAssist answer the assistant gesture",
+                                onClick = {
+                                    roleManager?.let { rm ->
+                                        if (rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                                            intentLauncher.launch(
+                                                rm.createRequestRoleIntent(
+                                                    android.app.role.RoleManager.ROLE_ASSISTANT
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            )
+                        } else {
+                            SettingsItem(
+                                icon = Icons.Default.CheckCircle,
+                                title = "Default assistant",
+                                subtitle = "AndroidAssist answers the assistant gesture ✓",
+                                onClick = {}
+                            )
+                        }
+                    }
                     SettingsSection(title = "About") {
                         SettingsItem(
                             icon = Icons.Default.Info,
