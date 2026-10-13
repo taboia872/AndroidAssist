@@ -625,7 +625,7 @@ private fun FullscreenAssistant(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (session.messages.isEmpty() && transcript.isEmpty()) {
-                    item { WelcomeMessage() }
+                    // No welcome card (user request) — empty state is just empty.
                 }
                 if (listening && transcript.isEmpty()) {
                     item { ThinkingBubble("Listening...") }

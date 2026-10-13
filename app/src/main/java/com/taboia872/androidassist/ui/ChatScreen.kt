@@ -1,5 +1,8 @@
 package com.taboia872.androidassist.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,13 +20,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -46,11 +52,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
+import com.taboia872.androidassist.voice.VoiceEngine
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * Main chat screen — same ChatSession machinery the overlay uses. Restores
  * the last chat on open; History button opens the saved-chats screen.
+ * Mic button: same VoiceEngine flow as the overlay (VAD + Groq Whisper),
+ * no auto-start here — the main screen is for browsing/continuing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +80,42 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // ---- voice (manual only on this screen) ----
+    var listening by remember { mutableStateOf(false) }
+    var voiceError by remember { mutableStateOf<String?>(null) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    fun startVoice() {
+        if (listening || session.busy) return
+        if (!VoiceEngine.hasMicPermission(context)) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        listening = true
+        voiceError = null
+        val lang = AppSettings.config.value.voiceLanguage.ifBlank {
+            Locale.getDefault().toLanguageTag()
+        }
+        VoiceEngine.recordAndTranscribe(
+            context, lang,
+            onResult = { result ->
+                listening = false
+                result.fold(
+                    onSuccess = { text ->
+                        if (AppSettings.config.value.autoSendVoice) {
+                            session.send(text, scope)
+                        } else {
+                            input = text
+                        }
+                    },
+                    onFailure = { e -> voiceError = e.message }
+                )
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -152,6 +198,22 @@ fun ChatScreen(
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                         }
                     }
+                    FilledIconButton(
+                        onClick = { if (listening) listening = false else startVoice() },
+                        modifier = Modifier.size(48.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (listening)
+                                MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            if (listening) Icons.Default.Stop else Icons.Default.Mic,
+                            if (listening) "Stop listening" else "Voice input",
+                            tint = if (listening) MaterialTheme.colorScheme.onError
+                            else MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
         }
@@ -168,17 +230,27 @@ fun ChatScreen(
                     .padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (session.messages.isEmpty()) {
-                    item { WelcomeMessage() }
-                }
                 items(session.messages) { msg ->
                     MessageBubble(msg)
+                }
+                if (listening) {
+                    item { ThinkingBubble("Listening...") }
                 }
                 if (session.reasoning.isNotEmpty()) {
                     item { ReasoningBubble(session.reasoning) }
                 }
                 if (session.busy && session.messages.lastOrNull()?.role != "assistant") {
                     item { ThinkingBubble(session.status) }
+                }
+                voiceError?.let { err ->
+                    item {
+                        Text(
+                            "Voice error: $err",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
                 }
             }
 
