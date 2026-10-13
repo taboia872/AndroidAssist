@@ -40,6 +40,10 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -91,6 +95,7 @@ import kotlinx.coroutines.launch
 
 private enum class SettingsCategory(val label: String) {
     AI("AI"),
+    VOICE("Voice"),
     SYSTEM("System")
 }
 
@@ -114,6 +119,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showModelDialog by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
+    var showVoiceLangDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -206,6 +212,49 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 }
 
+                if (settingsCategory == SettingsCategory.VOICE) {
+                    SettingsSection(title = "Voice Input") {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Mic,
+                            title = "Auto-start listening",
+                            subtitle = "Begin capturing audio the moment the assistant opens",
+                            checked = cfg.autoStartVoice,
+                            onCheckedChange = {
+                                AppSettings.update { c -> c.copy(autoStartVoice = it) }
+                            }
+                        )
+                        SettingsItemWithSwitch(
+                            icon = Icons.AutoMirrored.Filled.Send,
+                            title = "Auto-send after speech",
+                            subtitle = "Send the transcript to the model as soon as speech ends",
+                            checked = cfg.autoSendVoice,
+                            onCheckedChange = {
+                                AppSettings.update { c -> c.copy(autoSendVoice = it) }
+                            }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Translate,
+                            title = "Recognition language",
+                            subtitle = cfg.voiceLanguage.ifBlank { "System default" },
+                            onClick = { showVoiceLangDialog = true }
+                        )
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                "Transcription runs on Groq Whisper (online) using the Groq API key saved in the AI tab.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+
                 if (settingsCategory == SettingsCategory.SYSTEM) {
                     SettingsSection(title = "About") {
                         SettingsItem(
@@ -278,6 +327,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showPromptDialog = false
             },
             onDismiss = { showPromptDialog = false }
+        )
+    }
+
+    if (showVoiceLangDialog) {
+        VoiceLanguageDialog(
+            currentLanguage = cfg.voiceLanguage,
+            onLanguageSelected = { lang ->
+                AppSettings.update { it.copy(voiceLanguage = lang) }
+                showVoiceLangDialog = false
+            },
+            onDismiss = { showVoiceLangDialog = false }
         )
     }
 }
@@ -493,6 +553,63 @@ private fun SettingsItem(
             .clip(MaterialTheme.shapes.large)
             .defaultMinSize(minHeight = 72.dp)
             .clickable(onClick = onClick)
+    )
+}
+
+/** Settings row with a trailing Switch (visual language of the base app). */
+@Composable
+private fun SettingsItemWithSwitch(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        },
+        trailingContent = {
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        modifier = Modifier
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(MaterialTheme.shapes.large)
+            .defaultMinSize(minHeight = 72.dp)
+            .clickable { onCheckedChange(!checked) }
     )
 }
 
@@ -1068,4 +1185,53 @@ private fun SystemPromptDialog(
             }
         }
     }
+}
+
+/** Common Whisper languages; empty choice = system locale. */
+@Composable
+private fun VoiceLanguageDialog(
+    currentLanguage: String,
+    onLanguageSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val languages = listOf(
+        "" to "System default",
+        "pt" to "Português",
+        "en" to "English",
+        "es" to "Español",
+        "fr" to "Français",
+        "de" to "Deutsch",
+        "it" to "Italiano",
+        "ja" to "日本語",
+        "ko" to "한국어",
+        "zh" to "中文",
+        "ru" to "Русский"
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Recognition language") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                languages.forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onLanguageSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentLanguage == code,
+                            onClick = { onLanguageSelected(code) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }

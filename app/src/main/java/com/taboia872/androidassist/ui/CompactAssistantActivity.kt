@@ -444,7 +444,6 @@ private fun CompactAssistantSheet(
                             value = input,
                             onValueChange = { input = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Ask anything...") },
                             shape = RoundedCornerShape(28.dp),
                             singleLine = true,
                             enabled = !session.busy && !listening,
@@ -455,35 +454,41 @@ private fun CompactAssistantSheet(
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
                             )
                         )
+                        // Contextual action button: mic when the field is empty,
+                        // send as soon as there is text to send.
                         FilledIconButton(
                             onClick = {
-                                session.send(input, scope)
-                                input = ""
+                                if (input.isNotBlank()) {
+                                    session.send(input, scope)
+                                    input = ""
+                                } else {
+                                    onMic()
+                                }
                             },
-                            enabled = input.isNotBlank() && !session.busy,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send, "Send",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                        FilledIconButton(
-                            onClick = onMic,
+                            enabled = !session.busy || input.isNotBlank(),
                             modifier = Modifier.size(48.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = if (listening)
-                                    MaterialTheme.colorScheme.error
+                                containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
+                                else if (listening) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.primary
                             )
                         ) {
-                            Icon(
-                                if (listening) Icons.Default.Stop else Icons.Default.Mic,
-                                if (listening) "Stop listening" else "Voice input",
-                                tint = if (listening) MaterialTheme.colorScheme.onError
-                                else MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            when {
+                                input.isNotBlank() -> Icon(
+                                    Icons.AutoMirrored.Filled.Send, "Send",
+                                    tint = MaterialTheme.colorScheme.onPrimary
+                                )
+                                listening -> Icon(
+                                    Icons.Default.Stop, "Stop listening",
+                                    tint = MaterialTheme.colorScheme.onError,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                else -> Icon(
+                                    Icons.Default.Mic, "Voice input",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -570,43 +575,43 @@ private fun FullscreenAssistant(
                         value = input,
                         onValueChange = { input = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text(if (session.busy) "Generating..." else "Ask anything...") },
                         shape = RoundedCornerShape(24.dp),
                         maxLines = 4,
                         enabled = !session.busy && !listening
                     )
+                    // Contextual action button: mic when the field is empty,
+                    // send as soon as there is text to send.
                     FilledIconButton(
                         onClick = {
-                            session.send(input, scope)
-                            input = ""
+                            if (input.isNotBlank()) {
+                                session.send(input, scope)
+                                input = ""
+                            } else {
+                                onMic()
+                            }
                         },
-                        enabled = input.isNotBlank() && !session.busy,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        if (session.busy) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                        }
-                    }
-                    FilledIconButton(
-                        onClick = onMic,
+                        enabled = !session.busy || input.isNotBlank(),
                         modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (listening)
-                                MaterialTheme.colorScheme.error
+                            containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
+                            else if (listening) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.primary
                         )
                     ) {
-                        Icon(
-                            if (listening) Icons.Default.Stop else Icons.Default.Mic,
-                            if (listening) "Stop listening" else "Voice input",
-                            tint = if (listening) MaterialTheme.colorScheme.onError
-                            else MaterialTheme.colorScheme.onPrimary
-                        )
+                        when {
+                            input.isNotBlank() -> Icon(
+                                Icons.AutoMirrored.Filled.Send, "Send",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                            listening -> Icon(
+                                Icons.Default.Stop, "Stop listening",
+                                tint = MaterialTheme.colorScheme.onError
+                            )
+                            else -> Icon(
+                                Icons.Default.Mic, "Voice input",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
             }

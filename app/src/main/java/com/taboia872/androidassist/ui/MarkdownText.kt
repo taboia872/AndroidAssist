@@ -22,14 +22,18 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 
 /**
- * Markdown renderer for chat messages.
- * Supports: **bold**, *italic*, `code`, [links](url), ```code blocks```,
- * headers, lists and GFM pipe TABLES.
+ * Markdown renderer for CHAT — deliberately simple, chat-first.
  *
- * Tables were the "truncated" case before: the old parser had no table
- * awareness, so | pipes flowed through the inline formatter and rows
- * rendered as broken lines. Now a table block is detected, parsed and
- * drawn as a monospaced aligned grid with a proper separator row.
+ * Scope decision (user): this app is a chat, not a technical data viewer.
+ * Perfect table/code rendering is NOT the goal. What matters:
+ *  - bold/italic/links/lists render well
+ *  - `---` thematic breaks render as a real separator line (models open
+ *    and close sections with them; rendering them literally was the bug)
+ *  - ```code``` stays monospace, no syntax highlight attempts
+ *  - tables: each row renders as "a | b | c" with inline formatting
+ *    working inside cells — no grid alignment that truncates content
+ *
+ * Text is selectable (long-press) via SelectionContainer.
  */
 @Composable
 fun MarkdownText(
@@ -75,58 +79,20 @@ fun MarkdownText(
     }
 }
 
-/** A GFM table: header row, |---|---| separator, then body rows. */
-private class MarkdownTable(
-    private val header: List<String>,
-    private val rows: List<List<String>>
-) {
-    companion object {
-        fun parseIfTable(lines: List<String>, startIndex: Int): MarkdownTable? {
-            val headerLine = lines.getOrNull(startIndex) ?: return null
-            val sepLine = lines.getOrNull(startIndex + 1) ?: return null
-            if (!headerLine.trim().startsWith("|")) return null
-            if (!sepLine.trim().matches(
-                    Regex("^\\|?[\\s:-]*-{2,}[\\s:-]*(\\|[\\s:-]*-{2,}[\\s:-]*)*\\|?$")
-                )
-            ) return null
-            val header = splitRow(headerLine)
-            if (header.isEmpty()) return null
-            val rows = mutableListOf<List<String>>()
-            var i = startIndex + 2
-            while (i < lines.size && lines[i].trim().startsWith("|")) {
-                val row = splitRow(lines[i])
-                if (row.isNotEmpty()) rows.add(row)
-                i++
-            }
-            return MarkdownTable(header, rows)
-        }
+/** True when [line] is a GFM table row like " | a | b | ". */
+private fun isTableRow(line: String): Boolean {
+    val t = line.trim()
+    return t.startsWith("|") && t.endsWith("|") && t.length > 2
+}
 
-        fun tableEnd(startIndex: Int, table: MarkdownTable): Int =
-            startIndex + 2 + table.rows.size
-
-        private fun splitRow(line: String): List<String> =
-            line.trim().trim('|').split('|').map { it.trim() }
-    }
-
-    /** Render as a monospace, column-aligned grid string. */
-    fun render(): String {
-        val columns = header.size
-        val widths = IntArray(columns) { c ->
-            maxOf(
-                header.getOrElse(c) { "" }.length,
-                rows.maxOfOrNull { it.getOrElse(c) { "" }.length } ?: 0
-            )
-        }
-        fun pad(cells: List<String>): String =
-            (0 until columns).joinToString(" | ") { c ->
-                cells.getOrElse(c) { "" }.padEnd(widths[c])
-            }
-        val sb = StringBuilder()
-        sb.append(pad(header)).append('\n')
-        sb.append((0 until columns).joinToString("|") { "-".repeat(widths[it] + 2) }).append('\n')
-        rows.forEach { sb.append(pad(it)).append('\n') }
-        return sb.toString().trimEnd('\n')
-    }
+/** True when [line] is a table separator like |---|---| or | :---: |. */
+private fun isTableSeparator(line: String): Boolean {
+    val t = line.trim()
+    if (!t.startsWith("|")) return false
+    return t.split("|")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .all { Regex("^:?-{2,}:?$").matches(it) }
 }
 
 private fun parseMarkdown(
@@ -138,31 +104,16 @@ private fun parseMarkdown(
     return buildAnnotatedString {
         val lines = text.split("\n")
         val monoStyle = SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
+        val separatorStyle = SpanStyle(color = linkColor.copy(alpha = 0.55f))
 
         var i = 0
         while (i < lines.size) {
             if (i > 0) append("\n")
-
-            // ---- GFM table block ----
-            val table = MarkdownTable.parseIfTable(lines, i)
-            if (table != null) {
-                withStyle(monoStyle) {
-                    append(table.render())
-                }
-                i = MarkdownTable.tableEnd(i, table)
-                continue
-            }
-
             val line = lines[i]
-            i++
 
-            // ---- fenced code block (``` ... ```) spanning lines ----
+            // ---- fenced code block (``` ... ```) ----
             if (line.trimStart().startsWith("```")) {
-                val lang = line.trim().removePrefix("```").trim()
-                if (lang.isNotEmpty()) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(lang) }
-                    append("\n")
-                }
+                i++
                 withStyle(monoStyle) {
                     while (i < lines.size && !lines[i].trim().startsWith("```")) {
                         append(lines[i])
@@ -170,9 +121,46 @@ private fun parseMarkdown(
                         i++
                     }
                 }
-                if (i < lines.size) i++ // skip the closing ``` line
+                if (i < lines.size) i++ // skip closing fence
                 continue
             }
+
+            // ---- thematic break: ---, ***, ___ (the model separator bug) ----
+            if (Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$").matches(line) &&
+                !isTableRow(line) && !isTableSeparator(line)
+            ) {
+                withStyle(separatorStyle) { append("────────────") }
+                i++
+                continue
+            }
+
+            // ---- GFM table: keep every row, drop only the |---| separator.
+            //      Cells keep their inline formatting (bold/links/...).
+            if (isTableRow(line)) {
+                if (isTableSeparator(line)) {
+                    i++ // separator row carries no data
+                    continue
+                }
+                val isHeader = i + 1 < lines.size && isTableSeparator(lines[i + 1])
+                val cells = line.trim().trim('|').split('|')
+                cells.forEachIndexed { idx, cell ->
+                    val c = cell.trim()
+                    if (c.isNotEmpty()) {
+                        if (isHeader) {
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                                appendInline(c, linkColor, codeBackground)
+                            }
+                        } else {
+                            appendInline(c, linkColor, codeBackground)
+                        }
+                    }
+                    if (idx < cells.size - 1) append("  |  ")
+                }
+                i++
+                continue
+            }
+
+            i++
 
             // ---- headers ----
             val headerMatch = Regex("^(#{1,6})\\s+(.+)$").find(line)
