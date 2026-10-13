@@ -77,6 +77,7 @@ import androidx.core.content.ContextCompat
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.voice.VoiceEngine
+import com.taboia872.androidassist.voice.SystemRecognizer
 import java.util.Locale
 
 /**
@@ -157,23 +158,41 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
         val lang = cfg.voiceLanguage.ifBlank {
             Locale.getDefault().toLanguageTag()
         }
-        VoiceEngine.recordAndTranscribe(
-            context, lang,
-            onResult = { result ->
-                listening = false
-                result.fold(
-                    onSuccess = { text ->
-                        if (AppSettings.config.value.autoSendVoice) {
-                            session.send(text, scope)
-                        } else {
-                            transcript = text
-                        }
-                    },
-                    onFailure = { e -> voiceError = e.message }
-                )
-            }
-        )
-        // brief moment while AudioRecord warms up counts as listening already
+        when (cfg.voiceMethod) {
+            "system" -> SystemRecognizer.listen(
+                context, lang,
+                onPartial = { partial -> transcript = partial },
+                onResult = { result ->
+                    listening = false
+                    result.fold(
+                        onSuccess = { text ->
+                            if (AppSettings.config.value.autoSendVoice) {
+                                session.send(text, scope)
+                            } else {
+                                transcript = text
+                            }
+                        },
+                        onFailure = { e -> voiceError = e.message }
+                    )
+                }
+            )
+            else -> VoiceEngine.recordAndTranscribe(
+                context, lang,
+                onResult = { result ->
+                    listening = false
+                    result.fold(
+                        onSuccess = { text ->
+                            if (AppSettings.config.value.autoSendVoice) {
+                                session.send(text, scope)
+                            } else {
+                                transcript = text
+                            }
+                        },
+                        onFailure = { e -> voiceError = e.message }
+                    )
+                }
+            )
+        }
     }
 
     Box(

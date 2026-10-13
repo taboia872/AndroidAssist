@@ -28,7 +28,11 @@ data class AppConfig(
     val autoStartVoice: Boolean = true,
     val autoSendVoice: Boolean = true,
     /** BCP-47 tag; empty = system locale */
-    val voiceLanguage: String = ""
+    val voiceLanguage: String = "",
+    /** Voice input engine: "system" (SpeechRecognizer) or "groq" (Whisper) */
+    val voiceMethod: String = "groq",
+    /** Groq Whisper model used for transcription */
+    val whisperModel: String = "whisper-large-v3"
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -45,6 +49,8 @@ object AppSettings {
     private const val K_AUTO_START_VOICE = "auto_start_voice"
     private const val K_AUTO_SEND_VOICE = "auto_send_voice"
     private const val K_VOICE_LANG = "voice_language"
+    private const val K_VOICE_METHOD = "voice_method"
+    private const val K_WHISPER_MODEL = "whisper_model"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
     private var prefs: SharedPreferences? = null
@@ -101,7 +107,10 @@ object AppSettings {
             systemPrompt = p.getString(K_PROMPT, null) ?: AppConfig().systemPrompt,
             autoStartVoice = p.getBoolean(K_AUTO_START_VOICE, true),
             autoSendVoice = p.getBoolean(K_AUTO_SEND_VOICE, true),
-            voiceLanguage = p.getString(K_VOICE_LANG, "") ?: ""
+            voiceLanguage = p.getString(K_VOICE_LANG, "") ?: "",
+            voiceMethod = p.getString(K_VOICE_METHOD, "groq") ?: "groq",
+            whisperModel = p.getString(K_WHISPER_MODEL, "whisper-large-v3")
+                ?: "whisper-large-v3"
         )
     }
 
@@ -117,6 +126,8 @@ object AppSettings {
             .putBoolean(K_AUTO_START_VOICE, next.autoStartVoice)
             .putBoolean(K_AUTO_SEND_VOICE, next.autoSendVoice)
             .putString(K_VOICE_LANG, next.voiceLanguage)
+            .putString(K_VOICE_METHOD, next.voiceMethod)
+            .putString(K_WHISPER_MODEL, next.whisperModel)
             .apply()
         _config.value = next
     }

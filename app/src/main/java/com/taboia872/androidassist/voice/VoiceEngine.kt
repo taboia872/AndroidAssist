@@ -37,8 +37,7 @@ object VoiceEngine {
 
     /**
      * Record until silence-after-speech or the hard cap, then transcribe.
-     * Returns the transcript via [onPartial] (raw level updates optional)
-     * and the final result.
+     * Model comes from AppSettings.whisperModel (selected in Settings).
      */
     fun recordAndTranscribe(
         context: Context,
@@ -115,13 +114,14 @@ object VoiceEngine {
         }.start()
     }
 
-    /** WAV header + PCM → Groq audio/transcriptions (whisper-large-v3). */
+    /** WAV header + PCM → Groq audio/transcriptions, model from settings. */
     fun transcribeGroq(pcm: ByteArray, language: String): Result<String> {
         val cfg = com.taboia872.androidassist.settings.AppSettings.config.value
         val groqKey = cfg.apiKeys["groq"] ?: cfg.apiKeys[cfg.providerId] ?: ""
         if (groqKey.isBlank()) {
             return Result.failure(IllegalStateException("No Groq API key — add it in Settings"))
         }
+        val model = cfg.whisperModel.ifBlank { "whisper-large-v3" }
 
         return try {
             val boundary = "----AndroidAssist${System.currentTimeMillis()}"
@@ -151,7 +151,7 @@ object VoiceEngine {
             )
             body.write(wav)
             body.write("\r\n".toByteArray())
-            part("model", "whisper-large-v3")
+            part("model", model)
             if (language.isNotBlank()) part("language", normalizeLang(language))
             part("response_format", "json")
             body.write("--$boundary--\r\n".toByteArray())

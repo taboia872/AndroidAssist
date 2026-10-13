@@ -5,6 +5,18 @@
     <!-- Voice capture for the assistant overlay (step 5) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- API 30+: without these <queries> the system speech recognizer is
+         invisible to the app and SpeechRecognizer fails with a client
+         error even when the Google app is installed. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:label="AndroidAssist"
         android:allowBackup="false"

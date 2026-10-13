@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Switch
@@ -120,6 +121,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showUrlDialog by remember { mutableStateOf(false) }
     var showPromptDialog by remember { mutableStateOf(false) }
     var showVoiceLangDialog by remember { mutableStateOf(false) }
+    var showVoiceMethodDialog by remember { mutableStateOf(false) }
+    var showWhisperModelDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -214,6 +217,22 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 if (settingsCategory == SettingsCategory.VOICE) {
                     SettingsSection(title = "Voice Input") {
+                        SettingsItem(
+                            icon = Icons.Default.RecordVoiceOver,
+                            title = "Speech recognition",
+                            subtitle = if (cfg.voiceMethod == "system")
+                                "System recognizer (free, no key)"
+                            else "Groq Whisper (online)",
+                            onClick = { showVoiceMethodDialog = true }
+                        )
+                        if (cfg.voiceMethod != "system") {
+                            SettingsItem(
+                                icon = Icons.Default.SmartToy,
+                                title = "Whisper model",
+                                subtitle = cfg.whisperModel,
+                                onClick = { showWhisperModelDialog = true }
+                            )
+                        }
                         SettingsItemWithSwitch(
                             icon = Icons.Default.Mic,
                             title = "Auto-start listening",
@@ -246,7 +265,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         ) {
                             Text(
-                                "Transcription runs on Groq Whisper (online) using the Groq API key saved in the AI tab.",
+                                if (cfg.voiceMethod == "system")
+                                    "Uses Android's built-in speech recognizer (usually the Google app). No API key required."
+                                else
+                                    "Transcription runs on Groq Whisper (online) using the Groq API key saved in the AI tab.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(12.dp)
@@ -338,6 +360,28 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showVoiceLangDialog = false
             },
             onDismiss = { showVoiceLangDialog = false }
+        )
+    }
+
+    if (showVoiceMethodDialog) {
+        VoiceMethodDialog(
+            currentMethod = cfg.voiceMethod,
+            onMethodSelected = { method ->
+                AppSettings.update { it.copy(voiceMethod = method) }
+                showVoiceMethodDialog = false
+            },
+            onDismiss = { showVoiceMethodDialog = false }
+        )
+    }
+
+    if (showWhisperModelDialog) {
+        WhisperModelDialog(
+            currentModel = cfg.whisperModel,
+            onModelSelected = { model ->
+                AppSettings.update { it.copy(whisperModel = model) }
+                showWhisperModelDialog = false
+            },
+            onDismiss = { showWhisperModelDialog = false }
         )
     }
 }
@@ -1189,6 +1233,8 @@ private fun SystemPromptDialog(
 
 /** Common Whisper languages; empty choice = system locale. */
 @Composable
+/** Common Whisper languages; empty choice = system locale. */
+@Composable
 private fun VoiceLanguageDialog(
     currentLanguage: String,
     onLanguageSelected: (String) -> Unit,
@@ -1226,6 +1272,100 @@ private fun VoiceLanguageDialog(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** Voice input engine: system recognizer vs Groq Whisper. */
+@Composable
+private fun VoiceMethodDialog(
+    currentMethod: String,
+    onMethodSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val methods = listOf(
+        Triple("system", "System recognizer", "Android's built-in (Google app). Free, no API key."),
+        Triple("groq", "Groq Whisper", "Online transcription using the Groq API key.")
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Speech recognition") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                methods.forEach { (id, name, description) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMethodSelected(id) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentMethod == id,
+                            onClick = { onMethodSelected(id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** Groq Whisper transcription model. */
+@Composable
+private fun WhisperModelDialog(
+    currentModel: String,
+    onModelSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val models = listOf(
+        Triple("whisper-large-v3", "whisper-large-v3", "Most accurate"),
+        Triple("whisper-large-v3-turbo", "whisper-large-v3-turbo", "Faster, slightly less accurate")
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Whisper model") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                models.forEach { (id, name, description) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onModelSelected(id) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentModel == id,
+                            onClick = { onModelSelected(id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.voice.VoiceEngine
+import com.taboia872.androidassist.voice.SystemRecognizer
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -99,22 +100,41 @@ fun ChatScreen(
         val lang = AppSettings.config.value.voiceLanguage.ifBlank {
             Locale.getDefault().toLanguageTag()
         }
-        VoiceEngine.recordAndTranscribe(
-            context, lang,
-            onResult = { result ->
-                listening = false
-                result.fold(
-                    onSuccess = { text ->
-                        if (AppSettings.config.value.autoSendVoice) {
-                            session.send(text, scope)
-                        } else {
-                            input = text
-                        }
-                    },
-                    onFailure = { e -> voiceError = e.message }
-                )
-            }
-        )
+        when (AppSettings.config.value.voiceMethod) {
+            "system" -> SystemRecognizer.listen(
+                context, lang,
+                onPartial = { partial -> input = partial },
+                onResult = { result ->
+                    listening = false
+                    result.fold(
+                        onSuccess = { text ->
+                            if (AppSettings.config.value.autoSendVoice) {
+                                session.send(text, scope)
+                            } else {
+                                input = text
+                            }
+                        },
+                        onFailure = { e -> voiceError = e.message }
+                    )
+                }
+            )
+            else -> VoiceEngine.recordAndTranscribe(
+                context, lang,
+                onResult = { result ->
+                    listening = false
+                    result.fold(
+                        onSuccess = { text ->
+                            if (AppSettings.config.value.autoSendVoice) {
+                                session.send(text, scope)
+                            } else {
+                                input = text
+                            }
+                        },
+                        onFailure = { e -> voiceError = e.message }
+                    )
+                }
+            )
+        }
     }
 
     Scaffold(
