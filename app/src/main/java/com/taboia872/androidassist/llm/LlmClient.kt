@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.llm
 
+import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -9,8 +10,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
@@ -58,7 +57,7 @@ object LlmClient {
         // HttpURLConnection (not Https): custom endpoints may be plain http
         // (e.g. Ollama on http://192.168.0.10:11434/v1) and openConnection()
         // returns a plain connection for those.
-        val conn = (URL("${cfg.baseUrl.trimEnd('/')}/chat/completions").openConnection() as HttpURLConnection).apply {
+        val conn = Net.open("${cfg.baseUrl.trimEnd('/')}/chat/completions").apply {
             requestMethod = "POST"
             connectTimeout = 30_000
             readTimeout = 120_000

@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.llm
 
+import com.taboia872.androidassist.net.Net
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -55,7 +56,7 @@ object ModelCatalog {
         runCatching {
             // HttpURLConnection (not Https): custom endpoints may be plain
             // http, e.g. Ollama on http://192.168.0.10:11434/v1
-            val conn = (URL("$url/models").openConnection() as HttpURLConnection).apply {
+            val conn = Net.open("$url/models").apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
                 readTimeout = 15_000

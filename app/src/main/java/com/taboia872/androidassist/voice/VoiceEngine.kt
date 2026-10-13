@@ -7,10 +7,8 @@ import android.media.MediaRecorder
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import com.taboia872.androidassist.net.Net
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -129,8 +127,7 @@ object VoiceEngine {
             val boundary = "----AndroidAssist${System.currentTimeMillis()}"
             val wav = toWav(pcm, SAMPLE_RATE)
 
-            val conn = (URL("https://api.groq.com/openai/v1/audio/transcriptions")
-                .openConnection() as HttpURLConnection).apply {
+            val conn = Net.open("https://api.groq.com/openai/v1/audio/transcriptions").apply {
                 requestMethod = "POST"
                 connectTimeout = 15_000
                 readTimeout = 60_000
