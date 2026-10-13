@@ -94,10 +94,10 @@ object SystemRecognizer {
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_THRESHOLD_MILLIS,
-                2000L
-            )
+            // End-of-speech silence threshold: NOT in the public constant
+            // list on all API levels — use the string literal (it is a
+            // plain intent extra key, stable since API 8).
+            putExtra("android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_THRESHOLD_MILLIS", 2000L)
         }
         recognizer.startListening(intent)
     }

@@ -1279,8 +1279,6 @@ private fun SystemPromptDialog(
 
 /** Common Whisper languages; empty choice = system locale. */
 @Composable
-/** Common Whisper languages; empty choice = system locale. */
-@Composable
 private fun VoiceLanguageDialog(
     currentLanguage: String,
     onLanguageSelected: (String) -> Unit,
