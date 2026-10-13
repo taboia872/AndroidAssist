@@ -164,6 +164,10 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
                 onPartial = { partial -> transcript = partial },
                 onResult = { result ->
                     listening = false
+                    // Clear BEFORE handling: with auto-send the text becomes a
+                    // real user message; leaving it in `transcript` rendered the
+                    // message twice (bubble + "You: ..." live transcript).
+                    transcript = ""
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
@@ -180,6 +184,7 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
                 context, lang,
                 onResult = { result ->
                     listening = false
+                    transcript = ""
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
@@ -657,7 +662,13 @@ private fun FullscreenAssistant(
                 if (transcript.isNotEmpty()) {
                     item { MessageBubble(ChatMessage("user", transcript)) }
                 }
-                items(session.messages) { msg -> MessageBubble(msg) }
+                items(session.messages) { msg ->
+                    if (msg.reasoning.isNotBlank()) {
+                        ReasoningHeader(msg.reasoning)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    MessageBubble(msg)
+                }
                 if (session.reasoning.isNotEmpty()) {
                     item { ReasoningBubble(session.reasoning) }
                 }

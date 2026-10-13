@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -129,6 +130,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showVoiceLangDialog by remember { mutableStateOf(false) }
     var showVoiceMethodDialog by remember { mutableStateOf(false) }
     var showWhisperModelDialog by remember { mutableStateOf(false) }
+    var showVoiceGroqKeyDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -263,6 +265,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = cfg.voiceLanguage.ifBlank { "System default" },
                             onClick = { showVoiceLangDialog = true }
                         )
+                        if (cfg.voiceMethod != "system") {
+                            SettingsItem(
+                                icon = Icons.Default.Key,
+                                title = "Groq API Key",
+                                subtitle = if ((cfg.apiKeys["groq"] ?: "").isNotBlank())
+                                    "Configured ✓" else "Required for Whisper • free at console.groq.com/keys",
+                                onClick = { showVoiceGroqKeyDialog = true }
+                            )
+                        }
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -290,13 +301,59 @@ fun SettingsScreen(onBack: () -> Unit) {
                             context.getSystemService(android.app.role.RoleManager::class.java)
                         else null
                     }
+                    // Observable (not remember-cached forever): refreshes after
+                    // each role request so the UI reflects reality immediately.
+                    var isDefaultAssistant by remember {
+                        mutableStateOf(
+                            roleManager?.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) == true &&
+                                roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
+                        )
+                    }
+
+                    fun refreshAssistantRole() {
+                        isDefaultAssistant =
+                            roleManager?.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) == true &&
+                                roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
+                    }
+
+                    // MIUI/HyperOS often silently swallows the RoleManager
+                    // request dialog for third-party assistants. Fallback:
+                    // deep-link the system voice-input/assistant settings so
+                    // the user can flip it manually.
+                    fun openSystemAssistantSettings() {
+                        try {
+                            context.startActivity(
+                                Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (e: Exception) {
+                            try {
+                                context.startActivity(
+                                    Intent(android.provider.Settings.ACTION_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            } catch (e2: Exception) {
+                            }
+                        }
+                    }
+
                     val intentLauncher = rememberLauncherForActivityResult(
                         ActivityResultContracts.StartActivityForResult()
-                    ) { }
-                    val isDefaultAssistant = remember {
-                        roleManager?.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) == true &&
-                            roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
+                    ) {
+                        // Re-check: AOSP grants here. On MIUI the dialog never
+                        // showed, so the role is still unheld → send the user
+                        // to system settings instead.
+                        refreshAssistantRole()
+                        if (!isDefaultAssistant) {
+                            android.widget.Toast.makeText(
+                                context,
+                                "If no dialog appeared, select AndroidAssist in the system assistant settings",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                            openSystemAssistantSettings()
+                        }
                     }
+
                     SettingsSection(title = "Assistant") {
                         if (!isDefaultAssistant) {
                             SettingsItem(
@@ -304,14 +361,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 title = "Set as default assistant",
                                 subtitle = "Make AndroidAssist answer the assistant gesture",
                                 onClick = {
-                                    roleManager?.let { rm ->
-                                        if (rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
-                                            intentLauncher.launch(
-                                                rm.createRequestRoleIntent(
-                                                    android.app.role.RoleManager.ROLE_ASSISTANT
-                                                )
+                                    val rm = roleManager
+                                    if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                                        intentLauncher.launch(
+                                            rm.createRequestRoleIntent(
+                                                android.app.role.RoleManager.ROLE_ASSISTANT
                                             )
-                                        }
+                                        )
+                                    } else {
+                                        openSystemAssistantSettings()
                                     }
                                 }
                             )
@@ -428,6 +486,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showWhisperModelDialog = false
             },
             onDismiss = { showWhisperModelDialog = false }
+        )
+    }
+
+    if (showVoiceGroqKeyDialog) {
+        ProviderKeyDialog(
+            providerName = "Groq",
+            hint = "Free at console.groq.com/keys",
+            hasExistingKey = (cfg.apiKeys["groq"] ?: "").isNotBlank(),
+            onApiKeySaved = { key ->
+                AppSettings.setApiKey("groq", key)
+                showVoiceGroqKeyDialog = false
+            },
+            onDismiss = { showVoiceGroqKeyDialog = false }
         )
     }
 }

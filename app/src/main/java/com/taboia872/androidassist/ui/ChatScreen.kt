@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -51,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
-import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.voice.VoiceEngine
 import com.taboia872.androidassist.voice.SystemRecognizer
 import kotlinx.coroutines.launch
@@ -74,8 +74,9 @@ fun ChatScreen(
     val context = LocalContext.current
     val session = remember {
         ChatSession(persistenceContext = context.applicationContext).also { s ->
-            val restore = resumeChatId ?: ChatStore.currentId(context.applicationContext)
-            if (restore != null) s.loadFrom(context.applicationContext, restore)
+            // Fresh chat on open (user request) — same rule as the overlay.
+            // Only an explicit History selection resumes a saved chat.
+            if (resumeChatId != null) s.loadFrom(context.applicationContext, resumeChatId!!)
         }
     }
     var input by remember { mutableStateOf("") }
@@ -106,6 +107,10 @@ fun ChatScreen(
                 onPartial = { partial -> input = partial },
                 onResult = { result ->
                     listening = false
+                    // Clear the field BEFORE handling the result: auto-send
+                    // turns the transcript into a sent message, and the stale
+                    // text was being left behind in the input (user report).
+                    input = ""
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
@@ -122,6 +127,7 @@ fun ChatScreen(
                 context, lang,
                 onResult = { result ->
                     listening = false
+                    input = ""
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
@@ -253,6 +259,10 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(session.messages) { msg ->
+                    if (msg.reasoning.isNotBlank()) {
+                        ReasoningHeader(msg.reasoning)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     MessageBubble(msg)
                 }
                 if (listening) {

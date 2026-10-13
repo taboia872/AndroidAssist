@@ -12,7 +12,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
-data class ChatMessage(val role: String, val content: String)
+data class ChatMessage(
+    val role: String,
+    val content: String,
+    /** Final reasoning (thinking models), kept after the answer completes. */
+    val reasoning: String = ""
+)
 
 /**
  * One conversation: message list + streaming state + send() + persistence.
@@ -90,7 +95,18 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             }
             busy = false
             status = ""
+
+            // Keep the finished reasoning attached to the answer bubble
+            // (collapsible UI) instead of discarding it.
+            val finalReasoning = reasoning
             reasoning = ""
+            if (finalReasoning.isNotBlank() &&
+                messages.lastOrNull()?.role == "assistant" &&
+                answer.isNotEmpty()
+            ) {
+                messages = messages.dropLast(1) +
+                    messages.last().copy(reasoning = finalReasoning)
+            }
 
             // Auto-save the finished exchange (skip pure-error replies)
             val c = ctx
