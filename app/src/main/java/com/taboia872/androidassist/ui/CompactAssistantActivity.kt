@@ -75,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.taboia872.androidassist.settings.AppSettings
-import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.voice.VoiceEngine
 import java.util.Locale
@@ -130,14 +129,11 @@ class CompactAssistantActivity : ComponentActivity() {
 @Composable
 fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
     val context = LocalContext.current
+    // ACTION_ASSIST always starts a FRESH chat — the gesture is a new
+    // query by definition. Saved chats live in History (and continue
+    // there), so nothing is lost by starting clean.
     val session = remember {
-        ChatSession(persistenceContext = context.applicationContext).also { s ->
-            // Overlay conversations continue the last chat — picking up where
-            // you left off in the app is the natural assistant flow.
-            ChatStore.currentId(context.applicationContext)?.let { id ->
-                s.loadFrom(context.applicationContext, id)
-            }
-        }
+        ChatSession(persistenceContext = context.applicationContext)
     }
     var expanded by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
