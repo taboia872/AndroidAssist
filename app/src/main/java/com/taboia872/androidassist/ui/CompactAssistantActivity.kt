@@ -547,7 +547,9 @@ private fun FullscreenAssistant(
                 title = {
                     Column {
                         Text(
-                            cfg.model.ifBlank { "AndroidAssist" },
+                            AppSettings.activePersonaName()
+                                .takeIf { it != "Default" }
+                                ?: cfg.model.ifBlank { "AndroidAssist" },
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(

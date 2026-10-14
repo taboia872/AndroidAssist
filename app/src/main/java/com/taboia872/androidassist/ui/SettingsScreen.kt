@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
@@ -58,10 +59,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -147,6 +150,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showFishVoiceDialog by remember { mutableStateOf(false) }
     var showSearchEngineDialog by remember { mutableStateOf(false) }
     var showSearchKeyDialog by remember { mutableStateOf(false) }
+    var showPersonaDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -182,6 +186,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                     .padding(bottom = 20.dp)
             ) {
                 SettingsOverviewCard(
+                    personaName = AppSettings.activePersonaName(),
+                    hasPersonas = AppSettings.personas().isNotEmpty(),
+                    onPersonaClick = { showPersonaDialog = true },
                     provider = provider.displayName,
                     model = modelLabel,
                     keyStatus = keyStatus
@@ -705,6 +712,13 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         }
     }
+
+    if (showPersonaDialog) {
+        PersonaDialog(
+            activeId = cfg.activePersonaId,
+            onDismiss = { showPersonaDialog = false }
+        )
+    }
 }
 
 // ---------------------------------------------------------------- components
@@ -731,13 +745,18 @@ private fun SettingsCategoryTabs(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsOverviewCard(
+    personaName: String,
+    hasPersonas: Boolean,
+    onPersonaClick: () -> Unit,
     provider: String,
     model: String,
     keyStatus: String
 ) {
     ElevatedCard(
+        onClick = onPersonaClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 4.dp),
@@ -757,7 +776,7 @@ private fun SettingsOverviewCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Tune,
+                        Icons.Default.Face,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(24.dp)
@@ -766,14 +785,21 @@ private fun SettingsOverviewCard(
                 Spacer(modifier = Modifier.width(14.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "Assistant setup",
+                        personaName,
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        keyStatus,
+                        if (hasPersonas) "Tap to switch persona" else keyStatus,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                    )
+                }
+                if (hasPersonas) {
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
@@ -1963,6 +1989,157 @@ private fun SearchEngineDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/**
+ * Persona manager: switch the active persona, save the current config as a
+ * new persona, rename or delete saved ones. The current settings edit the
+ * ACTIVE persona in place — configure first, then save/switch.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PersonaDialog(
+    activeId: String,
+    onDismiss: () -> Unit
+) {
+    var personas by remember { mutableStateOf(AppSettings.personas()) }
+    var newName by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleting by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Personas") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Each persona is a full profile: prompt, server, model, search and voice.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                personas.forEach { p ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = p.id == activeId,
+                            onClick = {
+                                AppSettings.switchPersona(p.id)
+                                onDismiss()
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(p.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "${LlmProviders.byId(p.providerId).displayName} • " +
+                                    p.model.ifBlank { "no model" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (p.id == activeId) {
+                            IconButton(onClick = {
+                                renaming = p.id
+                                renameText = p.name
+                            }, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    Icons.Default.Edit, "Rename",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        IconButton(onClick = { deleting = p.id }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Delete, "Delete",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (renaming != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("New name") },
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            AppSettings.updatePersona(renaming!!, renameText)
+                            personas = AppSettings.personas()
+                            renaming = null
+                        }) { Text("Save name") }
+                        TextButton(onClick = { renaming = null }) { Text("Cancel") }
+                    }
+                }
+
+                if (deleting != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Delete this persona?",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                AppSettings.deletePersona(deleting!!)
+                                personas = AppSettings.personas()
+                                deleting = null
+                            },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) { Text("Delete") }
+                        TextButton(onClick = { deleting = null }) { Text("Cancel") }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "Save current settings as a new persona",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Name (e.g. Raul)") },
+                    shape = RoundedCornerShape(14.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        if (newName.isNotBlank()) {
+                            AppSettings.createPersona(newName)
+                            newName = ""
+                            onDismiss()
+                        }
+                    },
+                    enabled = newName.isNotBlank()
+                ) { Text("Save persona") }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
 }

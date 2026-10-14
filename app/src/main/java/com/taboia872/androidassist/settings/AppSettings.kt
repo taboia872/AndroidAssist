@@ -46,10 +46,80 @@ data class AppConfig(
     /** Search the web (DuckDuckGo, keyless) before sending to the model */
     val webSearchEnabled: Boolean = false,
     /** Active search engine: duckduckgo | brave | exa | langsearch */
-    val searchEngine: String = "duckduckgo"
+    val searchEngine: String = "duckduckgo",
+    /** Active persona id (profile); blank = default untitled profile */
+    val activePersonaId: String = ""
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
+}
+
+/**
+ * A named profile ("persona"): everything that defines a personality in one
+ * bundle. Switching personas swaps the profile slice into AppConfig; API
+ * keys stay global (a Groq key is a Groq key for every persona).
+ */
+data class Persona(
+    val id: String,
+    val name: String,
+    val systemPrompt: String,
+    val providerId: String,
+    val baseUrl: String,
+    val model: String,
+    val webSearchEnabled: Boolean,
+    val searchEngine: String,
+    val ttsEnabled: Boolean,
+    val ttsMethod: String,
+    val fishModel: String,
+    val fishVoiceId: String,
+    val fishVoiceName: String
+) {
+    companion object {
+        fun fromConfig(id: String, name: String, c: AppConfig) = Persona(
+            id = id,
+            name = name,
+            systemPrompt = c.systemPrompt,
+            providerId = c.providerId,
+            baseUrl = c.baseUrl,
+            model = c.model,
+            webSearchEnabled = c.webSearchEnabled,
+            searchEngine = c.searchEngine,
+            ttsEnabled = c.ttsEnabled,
+            ttsMethod = c.ttsMethod,
+            fishModel = c.fishModel,
+            fishVoiceId = c.fishVoiceId,
+            fishVoiceName = c.fishVoiceName
+        )
+
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("id", id); put("name", name); put("systemPrompt", systemPrompt)
+            put("providerId", providerId); put("baseUrl", baseUrl); put("model", model)
+            put("webSearchEnabled", webSearchEnabled); put("searchEngine", searchEngine)
+            put("ttsEnabled", ttsEnabled); put("ttsMethod", ttsMethod)
+            put("fishModel", fishModel); put("fishVoiceId", fishVoiceId)
+            put("fishVoiceName", fishVoiceName)
+        }
+
+        fun fromJson(o: JSONObject): Persona? {
+            val id = o.optString("id")
+            if (id.isBlank()) return null
+            return Persona(
+                id = id,
+                name = o.optString("name").ifBlank { "Persona" },
+                systemPrompt = o.optString("systemPrompt", ""),
+                providerId = o.optString("providerId", LlmProviders.OPENROUTER.id),
+                baseUrl = o.optString("baseUrl", ""),
+                model = o.optString("model", ""),
+                webSearchEnabled = o.optBoolean("webSearchEnabled", false),
+                searchEngine = o.optString("searchEngine", "duckduckgo"),
+                ttsEnabled = o.optBoolean("ttsEnabled", false),
+                ttsMethod = o.optString("ttsMethod", "system"),
+                fishModel = o.optString("fishModel", "s2.1-pro-free"),
+                fishVoiceId = o.optString("fishVoiceId", ""),
+                fishVoiceName = o.optString("fishVoiceName", "")
+            )
+        }
+    }
 }
 
 object AppSettings {
@@ -72,6 +142,8 @@ object AppSettings {
     private const val K_FISH_VOICE_NAME = "fish_voice_name"
     private const val K_WEB_SEARCH = "web_search_enabled"
     private const val K_SEARCH_ENGINE = "search_engine"
+    private const val K_ACTIVE_PERSONA = "active_persona_id"
+    private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
     private var prefs: SharedPreferences? = null
@@ -138,7 +210,8 @@ object AppSettings {
             fishVoiceId = p.getString(K_FISH_VOICE_ID, "") ?: "",
             fishVoiceName = p.getString(K_FISH_VOICE_NAME, "") ?: "",
             webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false),
-            searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo"
+            searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo",
+            activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: ""
         )
     }
 
@@ -163,8 +236,98 @@ object AppSettings {
             .putString(K_FISH_VOICE_NAME, next.fishVoiceName)
             .putBoolean(K_WEB_SEARCH, next.webSearchEnabled)
             .putString(K_SEARCH_ENGINE, next.searchEngine)
+            .putString(K_ACTIVE_PERSONA, next.activePersonaId)
             .apply()
         _config.value = next
+    }
+
+    // ------------------------------------------------------------- personas
+
+    private fun loadPersonas(): MutableList<Persona> {
+        val json = p().getString(K_PERSONAS, null) ?: return mutableListOf()
+        return try {
+            val arr = org.json.JSONArray(json)
+            val out = mutableListOf<Persona>()
+            for (i in 0 until arr.length()) {
+                Persona.fromJson(arr.optJSONObject(i) ?: continue)?.let { out.add(it) }
+            }
+            out
+        } catch (e: Exception) {
+            mutableListOf()
+        }
+    }
+
+    private fun savePersonas(list: List<Persona>) {
+        val arr = org.json.JSONArray()
+        list.forEach { arr.put(it.toJson()) }
+        p().edit().putString(K_PERSONAS, arr.toString()).apply()
+    }
+
+    /** All saved personas. */
+    fun personas(): List<Persona> = loadPersonas()
+
+    /**
+     * Snapshot the CURRENT config as a new persona. Returns the created id.
+     * The new persona becomes active immediately.
+     */
+    fun createPersona(name: String): String {
+        val id = java.util.UUID.randomUUID().toString()
+        val persona = Persona.fromConfig(id, name.trim().ifBlank { "Persona" }, _config.value)
+        val list = loadPersonas()
+        list.add(persona)
+        savePersonas(list)
+        update { it.copy(activePersonaId = id) }
+        return id
+    }
+
+    /** Overwrite the given persona with the current config (edit-in-place). */
+    fun updatePersona(id: String, newName: String) {
+        val list = loadPersonas()
+        val idx = list.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            list[idx] = Persona.fromConfig(
+                id, newName.trim().ifBlank { list[idx].name }, _config.value
+            )
+            savePersonas(list)
+        }
+    }
+
+    /** Apply a persona's slice to the live config and make it active. */
+    fun switchPersona(id: String) {
+        val persona = loadPersonas().firstOrNull { it.id == id } ?: return
+        update { c ->
+            c.copy(
+                systemPrompt = persona.systemPrompt,
+                providerId = persona.providerId,
+                baseUrl = persona.baseUrl,
+                model = persona.model,
+                webSearchEnabled = persona.webSearchEnabled,
+                searchEngine = persona.searchEngine,
+                ttsEnabled = persona.ttsEnabled,
+                ttsMethod = persona.ttsMethod,
+                fishModel = persona.fishModel,
+                fishVoiceId = persona.fishVoiceId,
+                fishVoiceName = persona.fishVoiceName,
+                activePersonaId = id
+            )
+        }
+    }
+
+    /** Delete a persona; clearing the active one falls back to live config. */
+    fun deletePersona(id: String) {
+        val list = loadPersonas()
+        val list2 = list.filter { it.id != id }
+        savePersonas(list2)
+        if (_config.value.activePersonaId == id) {
+            update { it.copy(activePersonaId = "") }
+        }
+    }
+
+    /** Display name of the active persona (or default). */
+    fun activePersonaName(): String {
+        val id = _config.value.activePersonaId
+        if (id.isBlank()) return "Default"
+        return loadPersonas().firstOrNull { it.id == id }?.name ?: "Default"
     }
 
     /**
