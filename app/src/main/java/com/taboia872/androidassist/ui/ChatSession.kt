@@ -5,7 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.taboia872.androidassist.llm.LlmClient
 import com.taboia872.androidassist.llm.StreamEvent
+import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
+import com.taboia872.androidassist.tts.TtsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +108,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             ) {
                 messages = messages.dropLast(1) +
                     messages.last().copy(reasoning = finalReasoning)
+            }
+
+            // Speak the finished answer when TTS is enabled (system engine,
+            // offline). Speak() strips markdown noise internally.
+            if (answer.isNotEmpty() &&
+                AppSettings.config.value.ttsEnabled
+            ) {
+                TtsManager.applyLanguage(AppSettings.config.value.voiceLanguage)
+                TtsManager.speak(answer.toString())
             }
 
             // Auto-save the finished exchange (skip pure-error replies)

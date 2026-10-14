@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.voice.VoiceEngine
 import com.taboia872.androidassist.voice.SystemRecognizer
@@ -100,6 +101,7 @@ class CompactAssistantActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
+        TtsManager.init(this, AppSettings.config.value.voiceLanguage)
         enableEdgeToEdge()
 
         // Voice capture never passes through MainActivity — request here.

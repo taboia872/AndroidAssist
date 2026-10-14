@@ -13,11 +13,13 @@ import com.taboia872.androidassist.ui.ChatHistoryScreen
 import com.taboia872.androidassist.ui.ChatScreen
 import com.taboia872.androidassist.ui.SettingsScreen
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
+import com.taboia872.androidassist.tts.TtsManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
+        TtsManager.init(this, AppSettings.config.value.voiceLanguage)
         enableEdgeToEdge()
         setContent {
             var screen by remember { mutableStateOf("chat") }

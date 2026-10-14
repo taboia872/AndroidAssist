@@ -32,7 +32,9 @@ data class AppConfig(
     /** Voice input engine: "system" (SpeechRecognizer) or "groq" (Whisper) */
     val voiceMethod: String = "groq",
     /** Groq Whisper model used for transcription */
-    val whisperModel: String = "whisper-large-v3"
+    val whisperModel: String = "whisper-large-v3",
+    /** Read finished answers aloud with the system TTS engine */
+    val ttsEnabled: Boolean = false
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -51,6 +53,7 @@ object AppSettings {
     private const val K_VOICE_LANG = "voice_language"
     private const val K_VOICE_METHOD = "voice_method"
     private const val K_WHISPER_MODEL = "whisper_model"
+    private const val K_TTS_ENABLED = "tts_enabled"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
     private var prefs: SharedPreferences? = null
@@ -110,7 +113,8 @@ object AppSettings {
             voiceLanguage = p.getString(K_VOICE_LANG, "") ?: "",
             voiceMethod = p.getString(K_VOICE_METHOD, "groq") ?: "groq",
             whisperModel = p.getString(K_WHISPER_MODEL, "whisper-large-v3")
-                ?: "whisper-large-v3"
+                ?: "whisper-large-v3",
+            ttsEnabled = p.getBoolean(K_TTS_ENABLED, false)
         )
     }
 
@@ -128,6 +132,7 @@ object AppSettings {
             .putString(K_VOICE_LANG, next.voiceLanguage)
             .putString(K_VOICE_METHOD, next.voiceMethod)
             .putString(K_WHISPER_MODEL, next.whisperModel)
+            .putBoolean(K_TTS_ENABLED, next.ttsEnabled)
             .apply()
         _config.value = next
     }

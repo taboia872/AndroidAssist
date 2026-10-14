@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
@@ -99,6 +100,7 @@ import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.llm.ModelInfo
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tts.TtsManager
 import kotlinx.coroutines.launch
 
 private enum class SettingsCategory(val label: String) {
@@ -274,23 +276,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 onClick = { showVoiceGroqKeyDialog = true }
                             )
                         }
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                if (cfg.voiceMethod == "system")
-                                    "Uses Android's built-in speech recognizer (usually the Google app). No API key required."
-                                else
-                                    "Transcription runs on Groq Whisper (online) using the Groq API key saved in the AI tab.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
+                    }
+
+                    SettingsSection(title = "Speech Output") {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.VolumeUp,
+                            title = "Read answers aloud",
+                            subtitle = "System TTS engine • offline • no API key",
+                            checked = cfg.ttsEnabled,
+                            onCheckedChange = { enabled ->
+                                AppSettings.update { c -> c.copy(ttsEnabled = enabled) }
+                                if (!enabled) TtsManager.stop()
+                            }
+                        )
                     }
                 }
 
