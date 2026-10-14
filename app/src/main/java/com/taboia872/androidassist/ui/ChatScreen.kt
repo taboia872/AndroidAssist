@@ -1,8 +1,13 @@
 package com.taboia872.androidassist.ui
 
 import android.Manifest
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +20,15 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
@@ -50,9 +58,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.util.PdfExtractor
+import com.taboia872.androidassist.util.PdfResult
 import com.taboia872.androidassist.voice.VoiceEngine
 import com.taboia872.androidassist.voice.SystemRecognizer
 import kotlinx.coroutines.launch
@@ -83,6 +95,84 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // ---- attachments ----
+    var attachedImage by remember { mutableStateOf<Bitmap?>(null) }
+    var attachedImageBase64 by remember { mutableStateOf<String?>(null) }
+    var attachedPdfSummary by remember { mutableStateOf<String?>(null) }
+    var attachedPdfText by remember { mutableStateOf<String?>(null) }
+    var attachError by remember { mutableStateOf<String?>(null) }
+
+    val attachLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val type = context.contentResolver.getType(it) ?: ""
+            if (type == "application/pdf") {
+                attachError = null
+                scope.launch {
+                    when (val result = PdfExtractor.extractText(context, it)) {
+                        is PdfResult.Success -> {
+                            attachedPdfText = result.text
+                            attachedPdfSummary = result.summary
+                        }
+                        is PdfResult.Error -> attachError = result.message
+                    }
+                }
+            } else {
+                // Image: decode, downscale to max 1024px, JPEG base64
+                try {
+                    context.contentResolver.openInputStream(it).use { stream ->
+                        val bmp = BitmapFactory.decodeStream(stream) ?: return@use
+                        val max = 1024
+                        val scaled = if (bmp.width > max || bmp.height > max) {
+                            val ratio = minOf(
+                                max.toFloat() / bmp.width,
+                                max.toFloat() / bmp.height
+                            )
+                            Bitmap.createScaledBitmap(
+                                bmp,
+                                (bmp.width * ratio).toInt(),
+                                (bmp.height * ratio).toInt(),
+                                true
+                            )
+                        } else bmp
+                        attachedImage = scaled
+                        val out = java.io.ByteArrayOutputStream()
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                        attachedImageBase64 =
+                            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                    }
+                } catch (e: Exception) {
+                    attachError = "Could not read image"
+                }
+            }
+        }
+    }
+
+    fun clearAttachments() {
+        attachedImage = null
+        attachedImageBase64 = null
+        attachedPdfSummary = null
+        attachedPdfText = null
+    }
+
+    fun sendCurrent() {
+        when {
+            attachedPdfText != null -> {
+                val q = input.ifBlank { "Summarize this document" }
+                session.send(
+                    "Document content:\n---\n${attachedPdfText}\n---\n\nQuestion: $q",
+                    scope
+                )
+            }
+            attachedImageBase64 != null ->
+                session.send(input, scope, attachedImageBase64)
+            else -> session.send(input, scope)
+        }
+        input = ""
+        clearAttachments()
+    }
 
     // ---- voice (manual only on this screen) ----
     var listening by remember { mutableStateOf(false) }
@@ -184,7 +274,67 @@ fun ChatScreen(
                 shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surfaceContainer
             ) {
-                Row(
+                Column {
+                    // Attachment preview strip
+                    attachedImage?.let { bmp ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, top = 8.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Attached image",
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                "Image attached",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { clearAttachments() }, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    Icons.Default.Close, "Remove",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                    attachedPdfSummary?.let { summary ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, top = 8.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = { clearAttachments() }, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    Icons.Default.Close, "Remove",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                    attachError?.let { err ->
+                        Text(
+                            err,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 16.dp, top = 8.dp)
+                        )
+                    }
+                    Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp)
@@ -193,6 +343,18 @@ fun ChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    IconButton(
+                        onClick = { attachLauncher.launch("image/*\napplication/pdf") },
+                        enabled = !session.busy,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AttachFile, "Attach",
+                            tint = if (attachedImageBase64 != null || attachedPdfText != null)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
@@ -208,19 +370,19 @@ fun ChatScreen(
                         )
                     )
                     // Contextual action button: mic when the field is empty,
-                    // send as soon as there is text to send.
+                    // send as soon as there is text or an attachment to send.
                     FilledIconButton(
                         onClick = {
-                            if (input.isNotBlank()) {
-                                session.send(input, scope)
-                                input = ""
+                            if (input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null) {
+                                sendCurrent()
                             } else if (listening) {
                                 listening = false
                             } else {
                                 startVoice()
                             }
                         },
-                        enabled = !session.busy || input.isNotBlank(),
+                        enabled = !session.busy || input.isNotBlank() ||
+                            attachedImageBase64 != null || attachedPdfText != null,
                         modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
@@ -229,7 +391,7 @@ fun ChatScreen(
                         )
                     ) {
                         when {
-                            input.isNotBlank() -> Icon(
+                            input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null -> Icon(
                                 Icons.AutoMirrored.Filled.Send, "Send",
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
@@ -243,6 +405,7 @@ fun ChatScreen(
                             )
                         }
                     }
+                }
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.taboia872.androidassist.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +47,19 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun MessageBubble(msg: ChatMessage) {
     val isUser = msg.role == "user"
+
+    // Decode attached image for display (if any)
+    val imageBitmap = remember(msg.imageBase64) {
+        msg.imageBase64?.let {
+            try {
+                val bytes = android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
@@ -60,20 +76,33 @@ fun MessageBubble(msg: ChatMessage) {
             color = if (isUser) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.surfaceVariant
         ) {
-            if (isUser) {
-                Text(
-                    msg.content,
-                    modifier = Modifier.padding(14.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            } else {
-                MarkdownText(
-                    text = msg.content,
-                    modifier = Modifier.padding(14.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    linkColor = MaterialTheme.colorScheme.primary
-                )
+            Column(modifier = Modifier.padding(14.dp)) {
+                imageBitmap?.let { bmp ->
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = "Attached image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                    )
+                    if (msg.content.isNotBlank() && msg.content != "What's in this image?") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                if (isUser) {
+                    Text(
+                        msg.content,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    MarkdownText(
+                        text = msg.content,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        linkColor = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

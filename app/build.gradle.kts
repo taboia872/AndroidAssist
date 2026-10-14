@@ -46,4 +46,5 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.security.crypto)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }

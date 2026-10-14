@@ -22,14 +22,16 @@ sealed class StreamEvent {
  * and model from AppSettings at call time — switching providers in Settings
  * takes effect on the very next message, no restart, no service reload.
  * Model listing lives in ModelCatalog (rich metadata), not here.
+ *
+ * Messages: triples of (role, content, imageBase64?). Images go out as the
+ * OpenAI vision multipart content shape; plain text stays a simple string.
  */
 object LlmClient {
 
-    /**
-     * Streaming chat completion. Messages: [{role, content}].
-     * Emits Content/Reasoning deltas, or one Error event on failure.
-     */
-    fun chat(messages: List<Pair<String, String>>): Flow<StreamEvent> = flow {
+    fun chat(
+        messages: List<Triple<String, String, String?>>,
+        systemPrompt: String
+    ): Flow<StreamEvent> = flow {
         val cfg = AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
             emit(StreamEvent.Error("No base URL configured — open Settings."))
@@ -48,8 +50,29 @@ object LlmClient {
             put("model", cfg.model)
             put("stream", true)
             put("messages", JSONArray().apply {
-                for ((role, content) in messages) {
-                    put(JSONObject().put("role", role).put("content", content))
+                if (systemPrompt.isNotBlank()) {
+                    put(JSONObject().put("role", "system").put("content", systemPrompt))
+                }
+                for ((role, content, image) in messages) {
+                    if (image != null) {
+                        // OpenAI vision shape: content is an array of typed parts
+                        put(JSONObject().apply {
+                            put("role", role)
+                            put("content", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("type", "text")
+                                    put("text", content)
+                                })
+                                put(JSONObject().apply {
+                                    put("type", "image_url")
+                                    put("image_url", JSONObject()
+                                        .put("url", "data:image/jpeg;base64,$image"))
+                                })
+                            })
+                        })
+                    } else {
+                        put(JSONObject().put("role", role).put("content", content))
+                    }
                 }
             })
         }

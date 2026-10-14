@@ -29,7 +29,7 @@ object ChatStore {
     fun save(
         context: Context,
         id: String,
-        messages: List<Pair<String, String>> // (role, content)
+        messages: List<Triple<String, String, String?>> // (role, content, imageBase64?)
     ): String {
         if (messages.isEmpty()) return id
 
@@ -42,8 +42,10 @@ object ChatStore {
             put("title", title)
             put("timestamp", System.currentTimeMillis())
             put("messages", JSONArray().apply {
-                messages.forEach { (role, content) ->
-                    put(JSONObject().put("role", role).put("content", content))
+                messages.forEach { (role, content, image) ->
+                    val m = JSONObject().put("role", role).put("content", content)
+                    if (image != null) m.put("image", image)
+                    put(m)
                 }
             })
         }
@@ -61,7 +63,7 @@ object ChatStore {
 
     data class LoadedChat(
         val id: String,
-        val messages: List<Pair<String, String>>
+        val messages: List<Triple<String, String, String?>>
     )
 
     fun load(context: Context, id: String): LoadedChat? {
@@ -75,7 +77,10 @@ object ChatStore {
                     val m = arr.optJSONObject(i) ?: continue
                     val role = m.optString("role")
                     val content = m.optString("content")
-                    if (role.isNotBlank()) add(role to content)
+                    if (role.isNotBlank()) {
+                        val img = m.optString("image").takeIf { it.isNotBlank() }
+                        add(Triple(role, content, img))
+                    }
                 }
             }
             if (msgs.isEmpty()) null else LoadedChat(id, msgs)

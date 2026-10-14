@@ -19,7 +19,9 @@ data class ChatMessage(
     val role: String,
     val content: String,
     /** Final reasoning (thinking models), kept after the answer completes. */
-    val reasoning: String = ""
+    val reasoning: String = "",
+    /** Attached image (JPEG base64) shown in the bubble and sent to vision models. */
+    val imageBase64: String? = null
 )
 
 /**
@@ -53,7 +55,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     fun loadFrom(context: android.content.Context, id: String) {
         val loaded = ChatStore.load(context, id) ?: return
         chatId = loaded.id
-        messages = loaded.messages.map { ChatMessage(it.first, it.second) }
+        messages = loaded.messages.map {
+            ChatMessage(it.first, it.second, imageBase64 = it.third)
+        }
         reasoning = ""
         status = ""
         ChatStore.setCurrentId(context, id)
@@ -69,13 +73,22 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         context?.let { ChatStore.setCurrentId(it, chatId) }
     }
 
-    fun send(query: String, scope: CoroutineScope) {
+    fun send(
+        query: String,
+        scope: CoroutineScope,
+        imageBase64: String? = null
+    ) {
         val q = query.trim()
-        if (q.isEmpty() || busy) return
+        if (q.isEmpty() && imageBase64 == null) return
+        if (busy) return
         busy = true
         reasoning = ""
         status = "Thinking..."
-        messages = messages + ChatMessage("user", q)
+        messages = messages + ChatMessage(
+            "user",
+            q.ifBlank { "What's in this image?" },
+            imageBase64 = imageBase64
+        )
 
         scope.launch {
             // Web search (keyless DuckDuckGo): fetch results and inject them
@@ -101,11 +114,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 status = "Thinking..."
             }
 
-            val history = if (effectiveQuery == q) messages.map { it.role to it.content }
-            else messages.dropLast(1).map { it.role to it.content } +
-                listOf("user" to effectiveQuery)
+            val history = if (effectiveQuery == q) {
+                messages.map { Triple(it.role, it.content, it.imageBase64) }
+            } else {
+                messages.dropLast(1).map { Triple(it.role, it.content, it.imageBase64) } +
+                    listOf(Triple("user", effectiveQuery, imageBase64))
+            }
             val answer = StringBuilder()
-            LlmClient.chat(history).collect { event ->
+            LlmClient.chat(
+                history,
+                AppSettings.config.value.systemPrompt
+            ).collect { event ->
                 when (event) {
                     is StreamEvent.Content -> {
                         status = "Typing..."
@@ -153,7 +172,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 withContext(Dispatchers.IO) {
                     ChatStore.save(
                         c, chatId,
-                        messages.map { it.role to it.content }
+                        messages.map { Triple(it.role, it.content, it.imageBase64) }
                     )
                     ChatStore.setCurrentId(c, chatId)
                 }
