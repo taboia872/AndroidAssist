@@ -91,8 +91,23 @@ object ModelCatalog {
             if (id.isEmpty()) continue
 
             val name = m.optString("name", "").ifEmpty { id }
-            val modality = m.optJSONObject("architecture")?.optString("modality") ?: ""
-            val supportsVision = modality.contains("image")
+            // Vision detection across provider shapes: OpenRouter nests it in
+            // architecture.modality; others expose top-level modality or
+            // capabilities. Groq free models (e.g. qwen vision) were getting
+            // no Vision badge because only the OpenRouter shape was checked.
+            val modality = m.optJSONObject("architecture")?.optString("modality")
+                ?: m.optString("modality", "")
+            val supportsVision = modality.contains("image") ||
+                m.optJSONObject("capabilities")?.let { caps ->
+                    caps.optString("vision", "") == "true" ||
+                        caps.has("input_image") ||
+                        caps.optJSONArray("input_modalities")?.let {
+                            (0 until it.length()).any { k -> it.optString(k) == "image" }
+                        } == true
+                } == true ||
+                m.optJSONObject("input_modalities")?.let {
+                    (0 until it.length()).any { k -> it.optString(k) == "image" }
+                } == true
 
             val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0)
                 ?: m.optInt("context_window", 0)
@@ -101,9 +116,12 @@ object ModelCatalog {
             val isFree = pricing == null || id.endsWith(":free") || promptPrice == 0.0
 
             val desc = buildString {
-                if (pricing == null) append("Hosted model")
-                else if (isFree) append("Free")
-                else append(String.format("$%.2f/M tokens", promptPrice * 1_000_000))
+                if (pricing != null) {
+                    if (isFree) append("Free")
+                    else append(String.format("$%.2f/M tokens", promptPrice * 1_000_000))
+                } else {
+                    append("Hosted")
+                }
                 if (contextLength > 0) {
                     append(" · ")
                     append(if (contextLength >= 1000) "${contextLength / 1000}K ctx" else "$contextLength ctx")

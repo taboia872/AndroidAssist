@@ -72,7 +72,12 @@ data class Persona(
     val ttsMethod: String,
     val fishModel: String,
     val fishVoiceId: String,
-    val fishVoiceName: String
+    val fishVoiceName: String,
+    val voiceMethod: String,
+    val whisperModel: String,
+    val voiceLanguage: String,
+    val autoStartVoice: Boolean,
+    val autoSendVoice: Boolean
 ) {
     companion object {
         fun fromConfig(id: String, name: String, c: AppConfig) = Persona(
@@ -88,7 +93,12 @@ data class Persona(
             ttsMethod = c.ttsMethod,
             fishModel = c.fishModel,
             fishVoiceId = c.fishVoiceId,
-            fishVoiceName = c.fishVoiceName
+            fishVoiceName = c.fishVoiceName,
+            voiceMethod = c.voiceMethod,
+            whisperModel = c.whisperModel,
+            voiceLanguage = c.voiceLanguage,
+            autoStartVoice = c.autoStartVoice,
+            autoSendVoice = c.autoSendVoice
         )
 
         fun fromJson(o: JSONObject): Persona? {
@@ -107,7 +117,12 @@ data class Persona(
                 ttsMethod = o.optString("ttsMethod", "system"),
                 fishModel = o.optString("fishModel", "s2.1-pro-free"),
                 fishVoiceId = o.optString("fishVoiceId", ""),
-                fishVoiceName = o.optString("fishVoiceName", "")
+                fishVoiceName = o.optString("fishVoiceName", ""),
+                voiceMethod = o.optString("voiceMethod", "groq"),
+                whisperModel = o.optString("whisperModel", "whisper-large-v3"),
+                voiceLanguage = o.optString("voiceLanguage", ""),
+                autoStartVoice = o.optBoolean("autoStartVoice", true),
+                autoSendVoice = o.optBoolean("autoSendVoice", true)
             )
         }
     }
@@ -119,6 +134,9 @@ data class Persona(
         put("ttsEnabled", ttsEnabled); put("ttsMethod", ttsMethod)
         put("fishModel", fishModel); put("fishVoiceId", fishVoiceId)
         put("fishVoiceName", fishVoiceName)
+        put("voiceMethod", voiceMethod); put("whisperModel", whisperModel)
+        put("voiceLanguage", voiceLanguage)
+        put("autoStartVoice", autoStartVoice); put("autoSendVoice", autoSendVoice)
     }
 }
 
@@ -308,6 +326,11 @@ object AppSettings {
                 fishModel = persona.fishModel,
                 fishVoiceId = persona.fishVoiceId,
                 fishVoiceName = persona.fishVoiceName,
+                voiceMethod = persona.voiceMethod,
+                whisperModel = persona.whisperModel,
+                voiceLanguage = persona.voiceLanguage,
+                autoStartVoice = persona.autoStartVoice,
+                autoSendVoice = persona.autoSendVoice,
                 activePersonaId = id
             )
         }

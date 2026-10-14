@@ -96,11 +96,20 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // Web search (keyless DuckDuckGo): fetch results and inject them
             // as a context block so the model answers with fresh facts.
             // Single hook in ChatSession — covers main chat and overlay.
+            // Web search: when enabled, fetch results FIRST and TELL the
+            // model the tool ran (fix for models that kept suggesting
+            // searches instead of answering — they never knew the tool
+            // existed).
             var effectiveQuery = q
+            var searchNote = ""
             if (AppSettings.config.value.webSearchEnabled) {
                 status = "Searching..."
                 val results = SearchEngines.search(q)
                 if (results.isNotEmpty()) {
+                    searchNote =
+                        "A web search tool just ran for this conversation and the fresh " +
+                        "results are included in the message below. USE THEM — cite the " +
+                        "source URLs when relevant. Do not suggest the user search the web.\n\n"
                     val context = buildString {
                         append("Web search results for \"$q\":\n")
                         results.forEach { r ->
@@ -113,14 +122,16 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     }
                     effectiveQuery = context + q
                 } else {
-                    // Search failed/empty (rate-limit, offline...): tell the
-                    // model explicitly so it does NOT hallucinate fresh
-                    // facts — the exact failure the user reported.
-                    effectiveQuery =
-                        "NOTE: a web search for this question was attempted but returned no results. " +
-                        "You have NO current information about this. Answer honestly: say you " +
-                        "cannot access live data right now, and clearly label anything uncertain " +
-                        "as uncertain. Do NOT invent numbers, dates or facts.\n\n" + q
+                    // Search failed/empty (rate-limit, offline...): say so in
+                    // the system note so the model does NOT hallucinate fresh
+                    // facts (cotação-do-dólar bug) and does not pretend it
+                    // searched.
+                    searchNote =
+                        "A web search was attempted for this question but returned no " +
+                        "results. You have NO current information about this. Answer " +
+                        "honestly: say you cannot access live data right now and label " +
+                        "anything uncertain as uncertain. Do NOT invent numbers, dates " +
+                        "or facts.\n\n"
                 }
                 status = "Thinking..."
             }
@@ -134,7 +145,8 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             val answer = StringBuilder()
             LlmClient.chat(
                 history,
-                AppSettings.config.value.systemPrompt
+                AppSettings.config.value.systemPrompt +
+                    if (searchNote.isNotBlank()) "\n\n$searchNote" else ""
             ).collect { event ->
                 when (event) {
                     is StreamEvent.Content -> {

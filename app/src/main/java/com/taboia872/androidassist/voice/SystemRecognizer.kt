@@ -30,6 +30,10 @@ object SystemRecognizer {
      * Start recognition. Ends on user silence (EXTRA_SPEECH_INPUT_COMPLETE_SILENCE
      * ~2s). [onPartial] gets live partials when the recognizer emits them.
      */
+    // Guards against ERROR_RECOGNIZER_BUSY retry loops
+    @Volatile
+    private var retriedBusy = false
+
     fun listen(
         context: Context,
         language: String,
@@ -37,6 +41,7 @@ object SystemRecognizer {
         onResult: (Result<String>) -> Unit,
         onCancelled: () -> Unit = {}
     ) {
+        retriedBusy = false
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             onResult(Result.failure(IllegalStateException("No speech recognizer on this device")))
             return
@@ -53,6 +58,15 @@ object SystemRecognizer {
             override fun onEndOfSpeech() {}
 
             override fun onError(error: Int) {
+                // ERROR_RECOGNIZER_BUSY (12): a previous listen cycle had not
+                // fully released the recognizer (auto-start on open + quick
+                // button tap race). One silent retry usually clears it.
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY && !retriedBusy) {
+                    retriedBusy = true
+                    recognizer.destroy()
+                    listen(context, language, onPartial, onResult, onCancelled)
+                    return
+                }
                 val message = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected"
