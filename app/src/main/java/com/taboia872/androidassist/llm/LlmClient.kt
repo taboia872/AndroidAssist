@@ -100,7 +100,7 @@ object LlmClient {
                             put("function", JSONObject().apply {
                                 put("name", "web_search")
                                 put("arguments", "{}")
-                            }
+                            })
                         }))
                     })
                     put(JSONObject().apply {

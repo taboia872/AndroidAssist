@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
@@ -1850,6 +1851,7 @@ private fun FishModelDialog(
  * needed), then the live catalog from GET /model with language filter
  * and name search, plus the manual reference_id fallback.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FishVoiceDialog(
     currentVoiceId: String,
