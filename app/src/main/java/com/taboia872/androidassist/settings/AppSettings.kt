@@ -91,15 +91,6 @@ data class Persona(
             fishVoiceName = c.fishVoiceName
         )
 
-        fun toJson(): JSONObject = JSONObject().apply {
-            put("id", id); put("name", name); put("systemPrompt", systemPrompt)
-            put("providerId", providerId); put("baseUrl", baseUrl); put("model", model)
-            put("webSearchEnabled", webSearchEnabled); put("searchEngine", searchEngine)
-            put("ttsEnabled", ttsEnabled); put("ttsMethod", ttsMethod)
-            put("fishModel", fishModel); put("fishVoiceId", fishVoiceId)
-            put("fishVoiceName", fishVoiceName)
-        }
-
         fun fromJson(o: JSONObject): Persona? {
             val id = o.optString("id")
             if (id.isBlank()) return null
@@ -119,6 +110,15 @@ data class Persona(
                 fishVoiceName = o.optString("fishVoiceName", "")
             )
         }
+    }
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("id", id); put("name", name); put("systemPrompt", systemPrompt)
+        put("providerId", providerId); put("baseUrl", baseUrl); put("model", model)
+        put("webSearchEnabled", webSearchEnabled); put("searchEngine", searchEngine)
+        put("ttsEnabled", ttsEnabled); put("ttsMethod", ttsMethod)
+        put("fishModel", fishModel); put("fishVoiceId", fishVoiceId)
+        put("fishVoiceName", fishVoiceName)
     }
 }
 
