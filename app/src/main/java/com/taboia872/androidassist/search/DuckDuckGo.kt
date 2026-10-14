@@ -55,10 +55,10 @@ object DuckDuckGo {
         var out = TAG_REGEX.replace(html, "")
         out = out.replace("&nbsp;", " ")
         out = out.replace(Regex("&#x27;|&#39;"), "'")
-        out = out.replace(""", "\"")
-        out = out.replace("<", "<")
-        out = out.replace(">", ">")
-        out = out.replace("&", "&")
+        out = out.replace("&" + "quot;", '"'.toString())
+        out = out.replace("&" + "lt;", "<")
+        out = out.replace("&" + "gt;", ">")
+        out = out.replace("&" + "amp;", "&")
         return out.trim()
     }
 
