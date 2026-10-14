@@ -29,8 +29,10 @@ data class AppConfig(
     val autoSendVoice: Boolean = true,
     /** BCP-47 tag; empty = system locale */
     val voiceLanguage: String = "",
-    /** Voice input engine: "system" (SpeechRecognizer) or "groq" (Whisper) */
-    val voiceMethod: String = "groq",
+    /** Voice input engine: "system" (SpeechRecognizer) or "groq" (Whisper).
+     *  Fresh installs default to SYSTEM (user request). Existing installs
+     *  keep their saved value; migration below rewrites the old default. */
+    val voiceMethod: String = "system",
     /** Groq Whisper model used for transcription */
     val whisperModel: String = "whisper-large-v3",
     /** Read finished answers aloud with the system TTS engine */
@@ -50,7 +52,9 @@ data class AppConfig(
     /** Active persona id (profile); blank = default untitled profile */
     val activePersonaId: String = "",
     /** App UI language: "" (system), "en" or "pt" (pt-BR) */
-    val appLanguage: String = ""
+    val appLanguage: String = "",
+    /** Favorite FishAudio voices: JSON array of {id,title} */
+    val fishFavorites: String = "[]"
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -164,6 +168,7 @@ object AppSettings {
     private const val K_SEARCH_ENGINE = "search_engine"
     private const val K_ACTIVE_PERSONA = "active_persona_id"
     private const val K_APP_LANGUAGE = "app_language"
+    private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
@@ -222,7 +227,7 @@ object AppSettings {
             autoStartVoice = p.getBoolean(K_AUTO_START_VOICE, true),
             autoSendVoice = p.getBoolean(K_AUTO_SEND_VOICE, true),
             voiceLanguage = p.getString(K_VOICE_LANG, "") ?: "",
-            voiceMethod = p.getString(K_VOICE_METHOD, "groq") ?: "groq",
+            voiceMethod = p.getString(K_VOICE_METHOD, "system") ?: "system",
             whisperModel = p.getString(K_WHISPER_MODEL, "whisper-large-v3")
                 ?: "whisper-large-v3",
             ttsEnabled = p.getBoolean(K_TTS_ENABLED, false),
@@ -233,7 +238,8 @@ object AppSettings {
             webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false),
             searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo",
             activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: "",
-            appLanguage = p.getString(K_APP_LANGUAGE, "") ?: ""
+            appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
+            fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]"
         )
     }
 
@@ -260,6 +266,7 @@ object AppSettings {
             .putString(K_SEARCH_ENGINE, next.searchEngine)
             .putString(K_ACTIVE_PERSONA, next.activePersonaId)
             .putString(K_APP_LANGUAGE, next.appLanguage)
+            .putString(K_FISH_FAVORITES, next.fishFavorites)
             .apply()
         _config.value = next
     }
@@ -350,6 +357,36 @@ object AppSettings {
             update { it.copy(activePersonaId = "") }
         }
     }
+
+    // ------------------------------------------------------- fish favorites
+
+    /** Favorite FishAudio voices as (id, title) pairs. */
+    fun fishFavoriteList(): List<Pair<String, String>> {
+        return try {
+            val arr = org.json.JSONArray(_config.value.fishFavorites)
+            val out = mutableListOf<Pair<String, String>>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isNotBlank()) out.add(id to o.optString("title").ifBlank { id })
+            }
+            out
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun toggleFishFavorite(id: String, title: String) {
+        val cur = fishFavoriteList().toMutableList()
+        val existing = cur.indexOfFirst { it.first == id }
+        if (existing >= 0) cur.removeAt(existing) else cur.add(id to title)
+        val arr = org.json.JSONArray()
+        cur.forEach { arr.put(org.json.JSONObject().put("id", it.first).put("title", it.second)) }
+        update { it.copy(fishFavorites = arr.toString()) }
+    }
+
+    fun isFishFavorite(id: String): Boolean =
+        fishFavoriteList().any { it.first == id }
 
     /** Display name of the active persona (or default). */
     fun activePersonaName(): String {

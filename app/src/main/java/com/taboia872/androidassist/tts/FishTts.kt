@@ -42,96 +42,49 @@ object FishTts {
         (AppSettings.config.value.apiKeys["fish"] ?: "").isNotBlank()
 
     /**
-     * List the voices visible to this API key. FishAudio changed endpoints
-     * over time (user hit HTTP 404 on the old one), so try in order:
-     *  1. GET /v1/voices          (ElevenLabs-compat shape: {voices:[{voice_id,name}]})
-     *  2. GET /v1/model/list-models (items shape)
-     *  3. POST /v1/model           (legacy {items:[{_id,title}]} shape)
-     * First endpoint returning 200 with a parseable list wins.
+     * List voices from FishAudio's public catalog: GET /model
+     * (root path — NOT /v1/model, which 404s since the API moved).
+     * Supports language filter (e.g. "pt") and page_size; returns
+     * {items:[{_id,title,description,languages,...}]}.
      */
-    suspend fun listVoices(): Result<List<FishVoice>> = withContext(Dispatchers.IO) {
-        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-        if (key.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("No FishAudio API key"))
-        }
-        val attempts = listOf<() -> List<FishVoice>?>(
-            { listViaGet("/v1/voices") },
-            { listViaGet("/v1/model/list-models") },
-            { listViaLegacyModelPost() }
-        )
-        for (attempt in attempts) {
-            try {
-                attempt()?.let { if (it.isNotEmpty()) return@withContext Result.success(it) }
-            } catch (e: Exception) {
-                // try next endpoint
+    suspend fun listVoices(language: String = ""): Result<List<FishVoice>> =
+        withContext(Dispatchers.IO) {
+            val key = AppSettings.config.value.apiKeys["fish"] ?: ""
+            if (key.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("No FishAudio API key")
+                )
+            }
+            runCatching {
+                var url = "https://api.fish.audio/model?page_size=50"
+                if (language.isNotBlank()) url += "&language=$language"
+                val conn = Net.open(url).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15_000
+                    readTimeout = 30_000
+                    setRequestProperty("Authorization", "Bearer $key")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    if (conn.responseCode != 200) {
+                        throw RuntimeException("HTTP ${conn.responseCode}")
+                    }
+                    val root = JSONObject(conn.inputStream.bufferedReader().readText())
+                    val items = root.optJSONArray("items") ?: org.json.JSONArray()
+                    val out = ArrayList<FishVoice>(items.length())
+                    for (i in 0 until items.length()) {
+                        val item = items.optJSONObject(i) ?: continue
+                        val id = item.optString("_id", "")
+                        if (id.isEmpty()) continue
+                        val title = item.optString("title", "").ifEmpty { "Voice $id" }
+                        out.add(FishVoice(id, title))
+                    }
+                    out
+                } finally {
+                    conn.disconnect()
+                }
             }
         }
-        Result.failure(IllegalStateException("No voices found (endpoints returned empty or failed)"))
-    }
-
-    private fun parseItems(arr: org.json.JSONArray): List<FishVoice> {
-        val out = ArrayList<FishVoice>(arr.length())
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val id = item.optString("_id", item.optString("id", item.optString("voice_id", "")))
-            if (id.isEmpty()) continue
-            val title = item.optString("title", item.optString("name", "")).ifEmpty { "Voice $id" }
-            out.add(FishVoice(id, title))
-        }
-        return out
-    }
-
-    private fun listViaGet(path: String): List<FishVoice>? {
-        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-        val conn = Net.open("https://api.fish.audio$path").apply {
-            requestMethod = "GET"
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            setRequestProperty("Authorization", "Bearer $key")
-            setRequestProperty("Accept", "application/json")
-        }
-        try {
-            if (conn.responseCode != 200) return null
-            val body = conn.inputStream.bufferedReader().readText()
-            // Bare-array response
-            if (body.trimStart().startsWith("[")) {
-                return parseItems(org.json.JSONArray(body))
-            }
-            val root = JSONObject(body)
-            // ElevenLabs shape: {voices:[...]}
-            root.optJSONArray("voices")?.let { return parseItems(it) }
-            // items shape: {items:[...]}
-            root.optJSONArray("items")?.let { return parseItems(it) }
-            return null
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun listViaLegacyModelPost(): List<FishVoice>? {
-        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-        val body = JSONObject().apply {
-            put("page_size", 100)
-            put("page_number", 1)
-        }
-        val conn = Net.open("https://api.fish.audio/v1/model").apply {
-            requestMethod = "POST"
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer $key")
-            setRequestProperty("Content-Type", "application/json")
-        }
-        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-        try {
-            if (conn.responseCode != 200) return null
-            val root = JSONObject(conn.inputStream.bufferedReader().readText())
-            root.optJSONArray("items")?.let { return parseItems(it) }
-            return null
-        } finally {
-            conn.disconnect()
-        }
-    }
 
     suspend fun speak(text: String): Boolean = withContext(Dispatchers.IO) {
         val key = AppSettings.config.value.apiKeys["fish"] ?: ""

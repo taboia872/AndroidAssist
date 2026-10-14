@@ -8,7 +8,6 @@ import com.taboia872.androidassist.llm.LlmClient
 import com.taboia872.androidassist.llm.StreamEvent
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
-import com.taboia872.androidassist.search.DuckDuckGo
 import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
@@ -94,60 +93,22 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         )
 
         scope.launch {
-            // Web search (keyless DuckDuckGo): fetch results and inject them
-            // as a context block so the model answers with fresh facts.
-            // Single hook in ChatSession — covers main chat and overlay.
-            // Web search: when enabled, fetch results FIRST and TELL the
-            // model the tool ran (fix for models that kept suggesting
-            // searches instead of answering — they never knew the tool
-            // existed).
-            var effectiveQuery = q
-            var searchNote = ""
-            if (AppSettings.config.value.webSearchEnabled) {
-                status = Strings.t(Strings.searching)
-                val results = SearchEngines.search(q)
-                if (results.isNotEmpty()) {
-                    searchNote =
-                        "A web search tool just ran for this conversation and the fresh " +
-                        "results are included in the message below. USE THEM — cite the " +
-                        "source URLs when relevant. Do not suggest the user search the web.\n\n"
-                    val context = buildString {
-                        append("Web search results for \"$q\":\n")
-                        results.forEach { r ->
-                            append("\n---\n")
-                            append("Title: ${r.title}\n")
-                            append("URL: ${r.url}\n")
-                            append("Snippet: ${r.snippet}")
-                        }
-                        append("\n---\n\n")
-                    }
-                    effectiveQuery = context + q
-                } else {
-                    // Search failed/empty (rate-limit, offline...): say so in
-                    // the system note so the model does NOT hallucinate fresh
-                    // facts (cotação-do-dólar bug) and does not pretend it
-                    // searched.
-                    searchNote =
-                        "A web search was attempted for this question but returned no " +
-                        "results. You have NO current information about this. Answer " +
-                        "honestly: say you cannot access live data right now and label " +
-                        "anything uncertain as uncertain. Do NOT invent numbers, dates " +
-                        "or facts.\n\n"
-                }
-                status = Strings.t(Strings.thinking)
-            }
-
-            val history = if (effectiveQuery == q) {
-                messages.map { Triple(it.role, it.content, it.imageBase64) }
-            } else {
-                messages.dropLast(1).map { Triple(it.role, it.content, it.imageBase64) } +
-                    listOf(Triple("user", effectiveQuery, imageBase64))
-            }
+            // FUNCTION CALLING (OpenAI tools pattern): when web search is on,
+            // the web_search TOOL is declared in the request — the model
+            // DECIDES when it needs fresh facts and emits a tool_call; we run
+            // the search and send results back as role:"tool" on a follow-up
+            // request. The model knows the tool exists (user's insight).
+            val useTools = AppSettings.config.value.webSearchEnabled
+            val history = messages.map { Triple(it.role, it.content, it.imageBase64) }
             val answer = StringBuilder()
+
+            // Round 1: with tools declared. A tool_call may arrive here.
+            var toolCall: Pair<String, String>? = null  // (id, query)
+
             LlmClient.chat(
                 history,
-                AppSettings.config.value.systemPrompt +
-                    if (searchNote.isNotBlank()) "\n\n$searchNote" else ""
+                AppSettings.config.value.systemPrompt,
+                toolsEnabled = useTools
             ).collect { event ->
                 when (event) {
                     is StreamEvent.Content -> {
@@ -158,17 +119,63 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         messages = base + ChatMessage("assistant", answer.toString())
                     }
                     is StreamEvent.Reasoning -> reasoning += event.text
+                    is StreamEvent.ToolCall -> { toolCall = event.id to event.query }
                     is StreamEvent.Error -> {
-                        messages = messages + ChatMessage("assistant", "⚠️ ${event.message}")
+                        messages = messages + ChatMessage("assistant", "\u26a0\ufe0f ${event.message}")
                         status = ""
                     }
                 }
             }
-            busy = false
-            status = ""
 
-            // Keep the finished reasoning attached to the answer bubble
-            // (collapsible UI) instead of discarding it.
+            // Round 2 (only if the model called the tool): run the search and
+            // replay the conversation with the tool result attached.
+            val call = toolCall
+            if (call != null) {
+                val searchQuery = call.second.ifBlank { q }
+                status = Strings.t(Strings.searching)
+                val results = SearchEngines.search(searchQuery)
+                val toolResult = if (results.isNotEmpty()) {
+                    buildString {
+                        append("Web search results for \"$searchQuery\":\n")
+                        results.forEach { r ->
+                            append("\n---\n")
+                            append("Title: ${r.title}\n")
+                            append("URL: ${r.url}\n")
+                            append("Snippet: ${r.snippet}")
+                        }
+                        append("\n---\n")
+                    }
+                } else {
+                    "The web search ran but returned no results. Tell the user " +
+                        "you could not find current data — do NOT invent facts."
+                }
+
+                answer.setLength(0)
+                LlmClient.chat(
+                    history,
+                    AppSettings.config.value.systemPrompt,
+                    toolsEnabled = false,
+                    toolCallId = call.first,
+                    toolResult = toolResult
+                ).collect { event ->
+                    when (event) {
+                        is StreamEvent.Content -> {
+                            status = Strings.t(Strings.typing)
+                            answer.append(event.text)
+                            val base = if (messages.lastOrNull()?.role == "assistant")
+                                messages.dropLast(1) else messages
+                            messages = base + ChatMessage("assistant", answer.toString())
+                        }
+                        is StreamEvent.Reasoning -> reasoning += event.text
+                        is StreamEvent.Error -> {
+                            messages = messages + ChatMessage("assistant", "\u26a0\ufe0f ${event.message}")
+                            status = ""
+                        }
+                        else -> {}
+                    }
+                }
+            }
+
             val finalReasoning = reasoning
             reasoning = ""
             if (finalReasoning.isNotBlank() &&

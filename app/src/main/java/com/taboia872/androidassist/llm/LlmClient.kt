@@ -14,6 +14,8 @@ import java.io.InputStreamReader
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
     data class Reasoning(val text: String) : StreamEvent()
+    /** Model requests the web_search tool; carries the query it wants. */
+    data class ToolCall(val id: String, val query: String) : StreamEvent()
     data class Error(val message: String) : StreamEvent()
 }
 
@@ -28,9 +30,40 @@ sealed class StreamEvent {
  */
 object LlmClient {
 
+    /** OpenAI tools declaration for web_search (function calling). */
+    private fun webSearchTool(): JSONObject = JSONObject().apply {
+        put("type", "function")
+        put("function", JSONObject().apply {
+            put("name", "web_search")
+            put("description",
+                "Search the web for current information (news, prices, weather, " +
+                "recent events). Use when the question needs up-to-date facts.")
+            put("parameters", JSONObject().apply {
+                put("type", "object")
+                put("properties", JSONObject().apply {
+                    put("query", JSONObject().apply {
+                        put("type", "string")
+                        put("description", "The search query, in the user's language")
+                    })
+                })
+                put("required", org.json.JSONArray().put("query"))
+            })
+        })
+    }
+
+    /**
+     * Streaming chat completion with FUNCTION CALLING when the server
+     * supports it: the web_search tool is declared up front; if the model
+     * wants fresh facts it emits a tool_call delta instead of guessing.
+     * [toolsEnabled] gates the declaration; [toolResult] injects a
+     * role:"tool" message (search results) for the follow-up turn.
+     */
     fun chat(
         messages: List<Triple<String, String, String?>>,
-        systemPrompt: String
+        systemPrompt: String,
+        toolsEnabled: Boolean = false,
+        toolCallId: String? = null,
+        toolResult: String? = null
     ): Flow<StreamEvent> = flow {
         val cfg = AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
@@ -49,9 +82,32 @@ object LlmClient {
         val body = JSONObject().apply {
             put("model", cfg.model)
             put("stream", true)
+            if (toolsEnabled) {
+                put("tools", JSONArray().put(webSearchTool()))
+                put("tool_choice", "auto")
+            }
             put("messages", JSONArray().apply {
                 if (systemPrompt.isNotBlank()) {
                     put(JSONObject().put("role", "system").put("content", systemPrompt))
+                }
+                if (toolCallId != null && toolResult != null) {
+                    // Follow-up turn: the assistant's tool_call + the result
+                    put(JSONObject().apply {
+                        put("role", "assistant")
+                        put("tool_calls", JSONArray().put(JSONObject().apply {
+                            put("id", toolCallId)
+                            put("type", "function")
+                            put("function", JSONObject().apply {
+                                put("name", "web_search")
+                                put("arguments", "{}")
+                            }
+                        }))
+                    })
+                    put(JSONObject().apply {
+                        put("role", "tool")
+                        put("tool_call_id", toolCallId)
+                        put("content", toolResult)
+                    })
                 }
                 for ((role, content, image) in messages) {
                     if (image != null) {
@@ -117,6 +173,33 @@ object LlmClient {
                     // Reasoning tokens (DeepSeek-R1 style), also common as "reasoning"
                     val reasoning = delta.opt("reasoning_content") ?: delta.opt("reasoning")
                     if (reasoning is String && reasoning.isNotEmpty()) emit(StreamEvent.Reasoning(reasoning))
+
+                    // Tool calls (streamed function-call deltas)
+                    val toolCalls = delta.optJSONArray("tool_calls")
+                    if (toolCalls != null) {
+                        for (t in 0 until toolCalls.length()) {
+                            val tc = toolCalls.optJSONObject(t) ?: continue
+                            val fn = tc.optJSONObject("function") ?: continue
+                            val args = fn.optJSONObject("arguments") ?: fn.opt("arguments")
+                            val query = when (args) {
+                                is org.json.JSONObject -> args.optString("query", "")
+                                is String -> {
+                                    try {
+                                        org.json.JSONObject(args).optString("query", "")
+                                    } catch (e: Exception) { "" }
+                                }
+                                else -> ""
+                            }
+                            val id = tc.optString("id", "call_0")
+                            if (query.isNotBlank()) {
+                                emit(StreamEvent.ToolCall(id, query))
+                            } else if (fn.optString("name", "") == "web_search") {
+                                // name arrived, arguments may stream later;
+                                // emit with empty query so the caller waits
+                                emit(StreamEvent.ToolCall(id, ""))
+                            }
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {

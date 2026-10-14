@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
@@ -416,9 +418,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = Strings.t(Strings.testVoiceSub),
                             onClick = {
                                 if (cfg.ttsMethod == "fish") {
-                                    testScope.launch { FishTts.speak("Voice output is working.") }
+                                    testScope.launch { FishTts.speak(Strings.t(Strings.testSentence)) }
                                 } else if (!TtsManager.speak(
-                                        "Voice output is working.",
+                                        Strings.t(Strings.testSentence),
                                         utteranceId = "test"
                                     )
                                 ) {
@@ -1843,7 +1845,11 @@ private fun FishModelDialog(
     )
 }
 
-/** FishAudio voice picker: live list from the account + platform default. */
+/**
+ * FishAudio voice picker: FAVORITES section pinned on top (no fetch
+ * needed), then the live catalog from GET /model with language filter
+ * and name search, plus the manual reference_id fallback.
+ */
 @Composable
 private fun FishVoiceDialog(
     currentVoiceId: String,
@@ -1854,10 +1860,18 @@ private fun FishVoiceDialog(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var manualInput by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    var langFilter by remember { mutableStateOf("") }
+    var favorites by remember { mutableStateOf(AppSettings.fishFavoriteList()) }
 
-    LaunchedEffect(Unit) {
-        FishTts.listVoices().fold(
+    fun refreshFavorites() {
+        favorites = AppSettings.fishFavoriteList()
+    }
+
+    LaunchedEffect(langFilter) {
+        loading = true
+        error = null
+        FishTts.listVoices(langFilter).fold(
             onSuccess = { voices = it },
             onFailure = { e ->
                 error = e.message
@@ -1870,11 +1884,11 @@ private fun FishVoiceDialog(
     if (manualInput) {
         AlertDialog(
             onDismissRequest = { manualInput = false },
-            title = { Text("Voice ID (reference_id)") },
+            title = { Text(Strings.t(Strings.voiceIdLabel)) },
             text = {
                 Column {
                     Text(
-                        "Paste a voice model ID from fish.audio (the m/ URL).",
+                        "fish.audio/m/...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1889,82 +1903,217 @@ private fun FishVoiceDialog(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(onClick = { onVoiceSelected(id.trim(), "Custom voice") }) {
-                        Text("Save")
+                        Text(Strings.t(Strings.save))
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { manualInput = false }) { Text(Strings.t(Strings.cancel)) }
+                TextButton(onClick = { manualInput = false }) {
+                    Text(Strings.t(Strings.cancel))
+                }
             }
         )
         return
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select voice") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column {
+                TopAppBar(
+                    title = { Text(Strings.t(Strings.selectVoice)) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, Strings.t(Strings.close))
+                        }
+                    }
+                )
+
+                // Language filter + search row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onVoiceSelected("", "") }
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    RadioButton(
-                        selected = currentVoiceId.isBlank(),
-                        onClick = { onVoiceSelected("", "") }
+                    FilterChip(
+                        selected = langFilter.isBlank(),
+                        onClick = { langFilter = "" },
+                        label = { Text("All") }
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text("Platform default voice", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "No reference_id — FishAudio picks the voice",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    FilterChip(
+                        selected = langFilter == "pt",
+                        onClick = { langFilter = "pt" },
+                        label = { Text("PT") }
+                    )
+                    FilterChip(
+                        selected = langFilter == "en",
+                        onClick = { langFilter = "en" },
+                        label = { Text("EN") }
+                    )
+                    FilterChip(
+                        selected = langFilter == "es",
+                        onClick = { langFilter = "es" },
+                        label = { Text("ES") }
+                    )
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text("Filter by name...") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp)
+                )
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    // Default voice option
+                    item {
+                        ListItem(
+                            headlineContent = {
+                                Text(Strings.t(Strings.platformDefaultVoice))
+                            },
+                            supportingContent = {
+                                Text("reference_id")
+                            },
+                            leadingContent = {
+                                RadioButton(
+                                    selected = currentVoiceId.isBlank(),
+                                    onClick = { onVoiceSelected("", "") }
+                                )
+                            },
+                            modifier = Modifier.clickable { onVoiceSelected("", "") }
                         )
                     }
-                }
 
-                when {
-                    loading -> Box(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                    error != null -> Text(
-                        "Could not list voices: $error",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    else -> voices.orEmpty().forEach { v ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onVoiceSelected(v.id, v.title) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = currentVoiceId == v.id,
-                                onClick = { onVoiceSelected(v.id, v.title) }
+                    // Favorites section — pinned, no fetch needed
+                    if (favorites.isNotEmpty()) {
+                        item {
+                            Text(
+                                "★ Favorites",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(
+                                    start = 16.dp, end = 16.dp, top = 8.dp
+                                )
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(v.title, style = MaterialTheme.typography.bodyLarge)
+                        }
+                        items(favorites.map { FishVoice(it.first, it.second) }) { v ->
+                            VoiceRow(
+                                voice = v,
+                                selected = currentVoiceId == v.id,
+                                isFavorite = true,
+                                onSelect = onVoiceSelected,
+                                onToggleFavorite = {
+                                    AppSettings.toggleFishFavorite(v.id, v.title)
+                                    refreshFavorites()
+                                }
+                            )
+                        }
+                    }
+
+                    // Live catalog section
+                    item {
+                        Text(
+                            if (langFilter.isBlank()) "Catalog"
+                            else "Language: $langFilter",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(
+                                start = 16.dp, end = 16.dp, top = 8.dp
+                            )
+                        )
+                    }
+                    when {
+                        loading -> item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                        error != null -> item {
+                            Text(
+                                "Could not list voices: $error",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                        else -> {
+                            val q = query.trim().lowercase()
+                            val filtered = voices.orEmpty().filter {
+                                q.isEmpty() || it.title.lowercase().contains(q)
+                            }
+                            items(filtered) { v ->
+                                VoiceRow(
+                                    voice = v,
+                                    selected = currentVoiceId == v.id,
+                                    isFavorite = AppSettings.isFishFavorite(v.id),
+                                    onSelect = onVoiceSelected,
+                                    onToggleFavorite = {
+                                        AppSettings.toggleFishFavorite(v.id, v.title)
+                                        refreshFavorites()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { manualInput = true }) { Text("Type ID…") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
+    }
+}
+
+@Composable
+private fun VoiceRow(
+    voice: FishVoice,
+    selected: Boolean,
+    isFavorite: Boolean,
+    onSelect: (id: String, name: String) -> Unit,
+    onToggleFavorite: () -> Unit
+) {
+    ListItem(
+        headlineContent = {
+            Text(voice.title, style = MaterialTheme.typography.bodyLarge)
+        },
+        leadingContent = {
+            RadioButton(selected = selected, onClick = { onSelect(voice.id, voice.title) })
+        },
+        trailingContent = {
+            IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    if (isFavorite) "Unfavorite" else "Favorite",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surface
+        ),
+        modifier = Modifier
+            .padding(horizontal = 8.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .clickable { onSelect(voice.id, voice.title) }
     )
 }
 
