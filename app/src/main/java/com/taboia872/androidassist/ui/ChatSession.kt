@@ -7,6 +7,7 @@ import com.taboia872.androidassist.llm.LlmClient
 import com.taboia872.androidassist.llm.StreamEvent
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
+import com.taboia872.androidassist.search.DuckDuckGo
 import com.taboia872.androidassist.tts.TtsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +78,32 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         messages = messages + ChatMessage("user", q)
 
         scope.launch {
-            val history = messages.map { it.role to it.content }
+            // Web search (keyless DuckDuckGo): fetch results and inject them
+            // as a context block so the model answers with fresh facts.
+            // Single hook in ChatSession — covers main chat and overlay.
+            var effectiveQuery = q
+            if (AppSettings.config.value.webSearchEnabled) {
+                status = "Searching..."
+                val results = DuckDuckGo.search(q)
+                if (results.isNotEmpty()) {
+                    val context = buildString {
+                        append("Web search results for \"$q\":\n")
+                        results.forEach { r ->
+                            append("\n---\n")
+                            append("Title: ${r.title}\n")
+                            append("URL: ${r.url}\n")
+                            append("Snippet: ${r.snippet}")
+                        }
+                        append("\n---\n\n")
+                    }
+                    effectiveQuery = context + q
+                }
+                status = "Thinking..."
+            }
+
+            val history = if (effectiveQuery == q) messages.map { it.role to it.content }
+            else messages.dropLast(1).map { it.role to it.content } +
+                listOf("user" to effectiveQuery)
             val answer = StringBuilder()
             LlmClient.chat(history).collect { event ->
                 when (event) {

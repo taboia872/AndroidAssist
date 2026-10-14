@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Switch
@@ -221,6 +222,18 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = cfg.systemPrompt.take(50) +
                                 if (cfg.systemPrompt.length > 50) "..." else "",
                             onClick = { showPromptDialog = true }
+                        )
+                    }
+
+                    SettingsSection(title = "Web Search") {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.TravelExplore,
+                            title = "Search the web",
+                            subtitle = "DuckDuckGo • free • no API key • answers with fresh facts",
+                            checked = cfg.webSearchEnabled,
+                            onCheckedChange = { enabled ->
+                                AppSettings.update { c -> c.copy(webSearchEnabled = enabled) }
+                            }
                         )
                     }
                 }
