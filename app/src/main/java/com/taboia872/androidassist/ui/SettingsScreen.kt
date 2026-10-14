@@ -339,6 +339,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
 
                 if (settingsCategory == SettingsCategory.OUTPUT) {
+                    val testScope = rememberCoroutineScope()
                     SettingsSection(title = "Speech Output") {
                         val ttsState by TtsManager.state.collectAsState()
                         val fishState by FishTts.state.collectAsState()
@@ -404,9 +405,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                             title = "Test voice",
                             subtitle = "Speak a short sentence now",
                             onClick = {
-                                val scope = rememberCoroutineScope()
                                 if (cfg.ttsMethod == "fish") {
-                                    scope.launch { FishTts.speak("Voice output is working.") }
+                                    testScope.launch { FishTts.speak("Voice output is working.") }
                                 } else if (!TtsManager.speak(
                                         "Voice output is working.",
                                         utteranceId = "test"
