@@ -105,7 +105,7 @@ object ModelCatalog {
                             (0 until it.length()).any { k -> it.optString(k) == "image" }
                         } == true
                 } == true ||
-                m.optJSONObject("input_modalities")?.let {
+                m.optJSONArray("input_modalities")?.let {
                     (0 until it.length()).any { k -> it.optString(k) == "image" }
                 } == true
 
