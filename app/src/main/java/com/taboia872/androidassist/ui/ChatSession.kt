@@ -9,6 +9,7 @@ import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.DuckDuckGo
 import com.taboia872.androidassist.tts.TtsManager
+import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -164,11 +165,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     messages.last().copy(reasoning = finalReasoning)
             }
 
-            // Speak the finished answer when TTS is enabled (system engine,
-            // offline). Failure is surfaced via TtsManager.state — never silent.
+            // Speak the finished answer when TTS is enabled. Engine dispatch:
+            // "system" (offline) or "fish" (FishAudio online). Failures
+            // surface via the state flows — never silent.
             if (answer.isNotEmpty() && AppSettings.config.value.ttsEnabled) {
-                TtsManager.applyLanguage(AppSettings.config.value.voiceLanguage)
-                TtsManager.speak(answer.toString())
+                when (AppSettings.config.value.ttsMethod) {
+                    "fish" -> scope.launch { FishTts.speak(answer.toString()) }
+                    else -> {
+                        TtsManager.applyLanguage(AppSettings.config.value.voiceLanguage)
+                        TtsManager.speak(answer.toString())
+                    }
+                }
             }
 
             // Auto-save the finished exchange (skip pure-error replies)

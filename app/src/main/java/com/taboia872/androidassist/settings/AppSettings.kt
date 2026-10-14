@@ -35,8 +35,18 @@ data class AppConfig(
     val whisperModel: String = "whisper-large-v3",
     /** Read finished answers aloud with the system TTS engine */
     val ttsEnabled: Boolean = false,
+    /** Speech synthesis engine: "system" (offline) or "fish" (FishAudio online) */
+    val ttsMethod: String = "system",
+    /** FishAudio TTS model (goes in the request HEADER, not body) */
+    val fishModel: String = "s2.1-pro-free",
+    /** FishAudio voice model id (reference_id); blank = platform default voice */
+    val fishVoiceId: String = "",
+    /** Display name of the selected FishAudio voice */
+    val fishVoiceName: String = "",
     /** Search the web (DuckDuckGo, keyless) before sending to the model */
-    val webSearchEnabled: Boolean = false
+    val webSearchEnabled: Boolean = false,
+    /** Active search engine: duckduckgo | brave | exa | langsearch */
+    val searchEngine: String = "duckduckgo"
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -56,7 +66,12 @@ object AppSettings {
     private const val K_VOICE_METHOD = "voice_method"
     private const val K_WHISPER_MODEL = "whisper_model"
     private const val K_TTS_ENABLED = "tts_enabled"
+    private const val K_TTS_METHOD = "tts_method"
+    private const val K_FISH_MODEL = "fish_model"
+    private const val K_FISH_VOICE_ID = "fish_voice_id"
+    private const val K_FISH_VOICE_NAME = "fish_voice_name"
     private const val K_WEB_SEARCH = "web_search_enabled"
+    private const val K_SEARCH_ENGINE = "search_engine"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
     private var prefs: SharedPreferences? = null
@@ -118,7 +133,12 @@ object AppSettings {
             whisperModel = p.getString(K_WHISPER_MODEL, "whisper-large-v3")
                 ?: "whisper-large-v3",
             ttsEnabled = p.getBoolean(K_TTS_ENABLED, false),
-            webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false)
+            ttsMethod = p.getString(K_TTS_METHOD, "system") ?: "system",
+            fishModel = p.getString(K_FISH_MODEL, "s2.1-pro-free") ?: "s2.1-pro-free",
+            fishVoiceId = p.getString(K_FISH_VOICE_ID, "") ?: "",
+            fishVoiceName = p.getString(K_FISH_VOICE_NAME, "") ?: "",
+            webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false),
+            searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo"
         )
     }
 
@@ -137,7 +157,12 @@ object AppSettings {
             .putString(K_VOICE_METHOD, next.voiceMethod)
             .putString(K_WHISPER_MODEL, next.whisperModel)
             .putBoolean(K_TTS_ENABLED, next.ttsEnabled)
+            .putString(K_TTS_METHOD, next.ttsMethod)
+            .putString(K_FISH_MODEL, next.fishModel)
+            .putString(K_FISH_VOICE_ID, next.fishVoiceId)
+            .putString(K_FISH_VOICE_NAME, next.fishVoiceName)
             .putBoolean(K_WEB_SEARCH, next.webSearchEnabled)
+            .putString(K_SEARCH_ENGINE, next.searchEngine)
             .apply()
         _config.value = next
     }

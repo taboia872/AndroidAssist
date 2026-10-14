@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
@@ -103,11 +104,14 @@ import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.llm.ModelInfo
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.tts.TtsManager
+import com.taboia872.androidassist.tts.FishTts
+import com.taboia872.androidassist.tts.FishVoice
 import kotlinx.coroutines.launch
 
 private enum class SettingsCategory(val label: String) {
     AI("AI"),
     VOICE("Voice"),
+    OUTPUT("Output"),
     SYSTEM("System")
 }
 
@@ -136,6 +140,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showVoiceMethodDialog by remember { mutableStateOf(false) }
     var showWhisperModelDialog by remember { mutableStateOf(false) }
     var showVoiceGroqKeyDialog by remember { mutableStateOf(false) }
+    var showTtsMethodDialog by remember { mutableStateOf(false) }
+    var showFishKeyDialog by remember { mutableStateOf(false) }
+    var showFishModelDialog by remember { mutableStateOf(false) }
+    var showFishVoiceDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -292,31 +300,78 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                         }
                     }
+                }
 
+                if (settingsCategory == SettingsCategory.OUTPUT) {
                     SettingsSection(title = "Speech Output") {
                         val ttsState by TtsManager.state.collectAsState()
-                        SettingsItemWithSwitch(
-                            icon = Icons.Default.VolumeUp,
-                            title = "Read answers aloud",
-                            subtitle = when (ttsState) {
+                        val fishState by FishTts.state.collectAsState()
+                        val activeSubtitle = when (cfg.ttsMethod) {
+                            "fish" -> when (val fs = fishState) {
+                                is TtsManager.TtsState.Failed -> fs.reason
+                                is TtsManager.TtsState.Speaking -> "Speaking…"
+                                is TtsManager.TtsState.Initializing -> "FishAudio: synthesizing…"
+                                else -> "FishAudio online • ${cfg.fishModel}"
+                            }
+                            else -> when (ttsState) {
                                 is TtsManager.TtsState.Failed ->
                                     (ttsState as TtsManager.TtsState.Failed).reason
                                 is TtsManager.TtsState.Speaking -> "Speaking…"
                                 is TtsManager.TtsState.Initializing -> "TTS engine starting…"
                                 else -> "System TTS engine • offline • no API key"
-                            },
+                            }
+                        }
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.VolumeUp,
+                            title = "Read answers aloud",
+                            subtitle = activeSubtitle,
                             checked = cfg.ttsEnabled,
                             onCheckedChange = { enabled ->
                                 AppSettings.update { c -> c.copy(ttsEnabled = enabled) }
-                                if (!enabled) TtsManager.stop()
+                                if (!enabled) {
+                                    TtsManager.stop()
+                                    FishTts.stop()
+                                }
                             }
                         )
+                        SettingsItem(
+                            icon = Icons.Default.RecordVoiceOver,
+                            title = "Speech engine",
+                            subtitle = if (cfg.ttsMethod == "fish")
+                                "FishAudio (online, natural voices)"
+                            else "System TTS (offline)",
+                            onClick = { showTtsMethodDialog = true }
+                        )
+                        if (cfg.ttsMethod == "fish") {
+                            SettingsItem(
+                                icon = Icons.Default.Key,
+                                title = "FishAudio API Key",
+                                subtitle = if ((cfg.apiKeys["fish"] ?: "").isNotBlank())
+                                    "Configured ✓" else "Required • fish.audio > API Keys",
+                                onClick = { showFishKeyDialog = true }
+                            )
+                            SettingsItem(
+                                icon = Icons.Default.SmartToy,
+                                title = "Fish model",
+                                subtitle = cfg.fishModel,
+                                onClick = { showFishModelDialog = true }
+                            )
+                            SettingsItem(
+                                icon = Icons.Default.Face,
+                                title = "Voice",
+                                subtitle = cfg.fishVoiceName.ifBlank { "Platform default voice" },
+                                onClick = { showFishVoiceDialog = true }
+                            )
+                        }
                         SettingsItem(
                             icon = Icons.Default.PlayArrow,
                             title = "Test voice",
                             subtitle = "Speak a short sentence now",
                             onClick = {
-                                if (!TtsManager.speak(
+                                val scope = rememberCoroutineScope()
+                                if (cfg.ttsMethod == "fish") {
+                                    scope.launch { FishTts.speak("Voice output is working.") }
+                                } else if (!TtsManager.speak(
                                         "Voice output is working.",
                                         utteranceId = "test"
                                     )
@@ -536,6 +591,54 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showVoiceGroqKeyDialog = false
             },
             onDismiss = { showVoiceGroqKeyDialog = false }
+        )
+    }
+
+    if (showTtsMethodDialog) {
+        TtsMethodDialog(
+            currentMethod = cfg.ttsMethod,
+            onMethodSelected = { method ->
+                AppSettings.update { it.copy(ttsMethod = method) }
+                showTtsMethodDialog = false
+            },
+            onDismiss = { showTtsMethodDialog = false }
+        )
+    }
+
+    if (showFishKeyDialog) {
+        ProviderKeyDialog(
+            providerName = "FishAudio",
+            hint = "Create at fish.audio > API Keys (free dev tier available)",
+            hasExistingKey = (cfg.apiKeys["fish"] ?: "").isNotBlank(),
+            onApiKeySaved = { key ->
+                AppSettings.setApiKey("fish", key)
+                showFishKeyDialog = false
+            },
+            onDismiss = { showFishKeyDialog = false }
+        )
+    }
+
+    if (showFishModelDialog) {
+        FishModelDialog(
+            currentModel = cfg.fishModel,
+            onModelSelected = { model ->
+                AppSettings.update { it.copy(fishModel = model) }
+                showFishModelDialog = false
+            },
+            onDismiss = { showFishModelDialog = false }
+        )
+    }
+
+    if (showFishVoiceDialog) {
+        FishVoiceDialog(
+            currentVoiceId = cfg.fishVoiceId,
+            onVoiceSelected = { id, name ->
+                AppSettings.update {
+                    it.copy(fishVoiceId = id, fishVoiceName = name)
+                }
+                showFishVoiceDialog = false
+            },
+            onDismiss = { showFishVoiceDialog = false }
         )
     }
 }
@@ -1523,6 +1626,227 @@ private fun WhisperModelDialog(
             }
         },
         confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** Speech output engine: system TTS or FishAudio online. */
+@Composable
+private fun TtsMethodDialog(
+    currentMethod: String,
+    onMethodSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val methods = listOf(
+        Triple("system", "System TTS", "Offline, free, no API key. The device's engine."),
+        Triple("fish", "FishAudio", "Online, natural neural voices. Needs API key.")
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Speech engine") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                methods.forEach { (id, name, description) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMethodSelected(id) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentMethod == id,
+                            onClick = { onMethodSelected(id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** FishAudio synthesis model (header param). */
+@Composable
+private fun FishModelDialog(
+    currentModel: String,
+    onModelSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val models = listOf(
+        Triple("s2.1-pro-free", "s2.1-pro-free", "Free developer tier"),
+        Triple("s2.1-pro", "s2.1-pro", "Production quality"),
+        Triple("s2-pro", "s2-pro", "Previous generation"),
+        Triple("speech-1.5", "speech-1.5", "Legacy")
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Fish model") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                models.forEach { (id, name, description) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onModelSelected(id) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentModel == id,
+                            onClick = { onModelSelected(id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** FishAudio voice picker: live list from the account + platform default. */
+@Composable
+private fun FishVoiceDialog(
+    currentVoiceId: String,
+    onVoiceSelected: (id: String, name: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var voices by remember { mutableStateOf<List<FishVoice>?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var manualInput by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        FishTts.listVoices().fold(
+            onSuccess = { voices = it },
+            onFailure = { e ->
+                error = e.message
+                voices = emptyList()
+            }
+        )
+        loading = false
+    }
+
+    if (manualInput) {
+        AlertDialog(
+            onDismissRequest = { manualInput = false },
+            title = { Text("Voice ID (reference_id)") },
+            text = {
+                Column {
+                    Text(
+                        "Paste a voice model ID from fish.audio (the m/ URL).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    var id by remember { mutableStateOf(currentVoiceId) }
+                    OutlinedTextField(
+                        value = id,
+                        onValueChange = { id = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(onClick = { onVoiceSelected(id.trim(), "Custom voice") }) {
+                        Text("Save")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { manualInput = false }) { Text("Cancel") }
+            }
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select voice") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onVoiceSelected("", "") }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentVoiceId.isBlank(),
+                        onClick = { onVoiceSelected("", "") }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Platform default voice", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "No reference_id — FishAudio picks the voice",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                when {
+                    loading -> Box(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    error != null -> Text(
+                        "Could not list voices: $error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    else -> voices.orEmpty().forEach { v ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onVoiceSelected(v.id, v.title) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = currentVoiceId == v.id,
+                                onClick = { onVoiceSelected(v.id, v.title) }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(v.title, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { manualInput = true }) { Text("Type ID…") }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
