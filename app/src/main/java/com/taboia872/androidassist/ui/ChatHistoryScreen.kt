@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,8 +65,8 @@ fun ChatHistoryScreen(
     chatToDelete?.let { chatId ->
         AlertDialog(
             onDismissRequest = { chatToDelete = null },
-            title = { Text("Delete chat?") },
-            text = { Text("This chat will be permanently deleted.") },
+            title = { Text(Strings.t(Strings.deleteChat)) },
+            text = { Text(Strings.t(Strings.deleteChatConfirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -73,10 +74,10 @@ fun ChatHistoryScreen(
                         chats = ChatStore.list(context)
                         chatToDelete = null
                     }
-                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                ) { Text(Strings.t(Strings.delete), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { chatToDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { chatToDelete = null }) { Text(Strings.t(Strings.cancel)) }
             }
         )
     }
@@ -84,7 +85,7 @@ fun ChatHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chat History") },
+                title = { Text(Strings.t(Strings.chatHistory)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -118,13 +119,13 @@ fun ChatHistoryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "No saved chats",
+                        Strings.t(Strings.noSavedChats),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Your chat history will appear here",
+                        Strings.t(Strings.historyWillAppear),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -201,7 +202,7 @@ private fun ChatHistoryItem(
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    Icons.Default.Delete, "Delete",
+                    Icons.Default.Delete, Strings.t(Strings.delete),
                     tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(18.dp)
                 )

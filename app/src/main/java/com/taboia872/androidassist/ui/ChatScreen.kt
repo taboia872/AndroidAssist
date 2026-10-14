@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -256,13 +257,13 @@ fun ChatScreen(
                 },
                 actions = {
                     IconButton(onClick = { session.reset(context.applicationContext) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "New Chat")
+                        Icon(Icons.Default.Refresh, contentDescription = Strings.t(Strings.newChat))
                     }
                     IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Default.History, contentDescription = "Chat History")
+                        Icon(Icons.Default.History, contentDescription = Strings.t(Strings.chatHistory))
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = Strings.t(Strings.settings))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -432,7 +433,7 @@ fun ChatScreen(
                     MessageBubble(msg)
                 }
                 if (listening) {
-                    item { ThinkingBubble("Listening...") }
+                    item { ThinkingBubble(Strings.t(Strings.listening)) }
                 }
                 if (session.reasoning.isNotEmpty()) {
                     item { ReasoningBubble(session.reasoning) }

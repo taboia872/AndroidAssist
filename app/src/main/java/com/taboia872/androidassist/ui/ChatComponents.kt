@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -137,7 +138,7 @@ fun ReasoningHeader(reasoning: String) {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "Thought process",
+                    Strings.t(Strings.thoughtProcess),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)

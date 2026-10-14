@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -113,10 +115,10 @@ import com.taboia872.androidassist.tts.FishVoice
 import kotlinx.coroutines.launch
 
 private enum class SettingsCategory(val label: String) {
-    AI("AI"),
-    VOICE("Voice"),
-    OUTPUT("Output"),
-    SYSTEM("System")
+    AI(Strings.t(Strings.aiTab)),
+    VOICE(Strings.t(Strings.voiceTab)),
+    OUTPUT(Strings.t(Strings.outputTab)),
+    SYSTEM(Strings.t(Strings.systemTab))
 }
 
 /**
@@ -151,6 +153,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showSearchEngineDialog by remember { mutableStateOf(false) }
     var showSearchKeyDialog by remember { mutableStateOf(false) }
     var showPersonaDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -167,7 +170,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(Strings.t(Strings.titleSettings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -200,10 +203,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
 
                 if (settingsCategory == SettingsCategory.AI) {
-                    SettingsSection(title = "API Configuration") {
+                    SettingsSection(title = Strings.t(Strings.apiConfig)) {
                         SettingsItem(
                             icon = Icons.Default.Cloud,
-                            title = "Cloud Provider",
+                            title = Strings.t(Strings.cloudProvider),
                             subtitle = provider.displayName,
                             onClick = { showProviderDialog = true }
                         )
@@ -223,32 +226,32 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                     }
 
-                    SettingsSection(title = "AI Model") {
+                    SettingsSection(title = Strings.t(Strings.aiModel)) {
                         SettingsItem(
                             icon = Icons.Default.SmartToy,
-                            title = "Model",
+                            title = Strings.t(Strings.model),
                             subtitle = modelLabel,
                             onClick = { showModelDialog = true }
                         )
                         SettingsItem(
                             icon = Icons.Default.Refresh,
-                            title = "Refresh model catalog",
+                            title = Strings.t(Strings.refreshCatalog),
                             subtitle = "Fetch the live list from ${provider.displayName}",
                             onClick = { showModelDialog = true }
                         )
                         SettingsItem(
                             icon = Icons.Default.Edit,
-                            title = "System Prompt",
+                            title = Strings.t(Strings.systemPrompt),
                             subtitle = cfg.systemPrompt.take(50) +
                                 if (cfg.systemPrompt.length > 50) "..." else "",
                             onClick = { showPromptDialog = true }
                         )
                     }
 
-                    SettingsSection(title = "Web Search") {
+                    SettingsSection(title = Strings.t(Strings.webSearchSection)) {
                         SettingsItemWithSwitch(
                             icon = Icons.Default.TravelExplore,
-                            title = "Search the web",
+                            title = Strings.t(Strings.searchTheWeb),
                             subtitle = "Answers with fresh facts • ${SearchEngines.byId(cfg.searchEngine).name}",
                             checked = cfg.webSearchEnabled,
                             onCheckedChange = { enabled ->
@@ -257,7 +260,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                         SettingsItem(
                             icon = Icons.Default.Search,
-                            title = "Search engine",
+                            title = Strings.t(Strings.searchEngine),
                             subtitle = SearchEngines.byId(cfg.searchEngine).name +
                                 if (SearchEngines.isConfigured(cfg.searchEngine)) ""
                                 else " • API key needed",
@@ -292,10 +295,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
 
                 if (settingsCategory == SettingsCategory.VOICE) {
-                    SettingsSection(title = "Voice Input") {
+                    SettingsSection(title = Strings.t(Strings.voiceInputSection)) {
                         SettingsItem(
                             icon = Icons.Default.RecordVoiceOver,
-                            title = "Speech recognition",
+                            title = Strings.t(Strings.speechRecognition),
                             subtitle = if (cfg.voiceMethod == "system")
                                 "System recognizer (free, no key)"
                             else "Groq Whisper (online)",
@@ -347,7 +350,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 if (settingsCategory == SettingsCategory.OUTPUT) {
                     val testScope = rememberCoroutineScope()
-                    SettingsSection(title = "Speech Output") {
+                    SettingsSection(title = Strings.t(Strings.speechOutputSection)) {
                         val ttsState by TtsManager.state.collectAsState()
                         val fishState by FishTts.state.collectAsState()
                         val activeSubtitle = when (cfg.ttsMethod) {
@@ -367,7 +370,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                         SettingsItemWithSwitch(
                             icon = Icons.Default.VolumeUp,
-                            title = "Read answers aloud",
+                            title = Strings.t(Strings.readAloud),
                             subtitle = activeSubtitle,
                             checked = cfg.ttsEnabled,
                             onCheckedChange = { enabled ->
@@ -380,7 +383,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                         SettingsItem(
                             icon = Icons.Default.RecordVoiceOver,
-                            title = "Speech engine",
+                            title = Strings.t(Strings.speechEngine),
                             subtitle = if (cfg.ttsMethod == "fish")
                                 "FishAudio (online, natural voices)"
                             else "System TTS (offline)",
@@ -402,15 +405,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                             SettingsItem(
                                 icon = Icons.Default.Face,
-                                title = "Voice",
+                                title = Strings.t(Strings.voiceTab),
                                 subtitle = cfg.fishVoiceName.ifBlank { "Platform default voice" },
                                 onClick = { showFishVoiceDialog = true }
                             )
                         }
                         SettingsItem(
                             icon = Icons.Default.PlayArrow,
-                            title = "Test voice",
-                            subtitle = "Speak a short sentence now",
+                            title = Strings.t(Strings.testVoice),
+                            subtitle = Strings.t(Strings.testVoiceSub),
                             onClick = {
                                 if (cfg.ttsMethod == "fish") {
                                     testScope.launch { FishTts.speak("Voice output is working.") }
@@ -489,11 +492,23 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     }
 
-                    SettingsSection(title = "Assistant") {
+                    SettingsSection(title = Strings.t(Strings.appLanguage)) {
+                        SettingsItem(
+                            icon = Icons.Default.Language,
+                            title = Strings.t(Strings.appLanguage),
+                            subtitle = when (cfg.appLanguage) {
+                                "pt" -> "Português (Brasil)"
+                                "en" -> "English"
+                                else -> "System default"
+                            },
+                            onClick = { showLanguageDialog = true }
+                        )
+                    }
+                    SettingsSection(title = Strings.t(Strings.assistantSection)) {
                         if (!isDefaultAssistant) {
                             SettingsItem(
                                 icon = Icons.Default.AutoAwesome,
-                                title = "Set as default assistant",
+                                title = Strings.t(Strings.setDefaultAssistant),
                                 subtitle = "Make AndroidAssist answer the assistant gesture",
                                 onClick = {
                                     val rm = roleManager
@@ -517,7 +532,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                         }
                     }
-                    SettingsSection(title = "About") {
+                    SettingsSection(title = Strings.t(Strings.about)) {
                         SettingsItem(
                             icon = Icons.Default.Info,
                             title = "AndroidAssist",
@@ -711,6 +726,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 onDismiss = { showSearchKeyDialog = false }
             )
         }
+    }
+
+    if (showLanguageDialog) {
+        AppLanguageDialog(
+            current = cfg.appLanguage,
+            onSelected = { lang ->
+                AppSettings.update { it.copy(appLanguage = lang) }
+                showLanguageDialog = false
+            },
+            onDismiss = { showLanguageDialog = false }
+        )
     }
 
     if (showPersonaDialog) {
@@ -1014,7 +1040,7 @@ private fun ProviderSelectionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Cloud Provider", style = MaterialTheme.typography.headlineSmall) },
+        title = { Text(Strings.t(Strings.cloudProvider), style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 LlmProviders.ALL.forEach { p ->
@@ -1044,7 +1070,7 @@ private fun ProviderSelectionDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1106,7 +1132,7 @@ private fun ProviderKeyDialog(
             ) { Text("Save") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1145,7 +1171,7 @@ private fun BaseUrlDialog(
             Button(onClick = { onUrlSaved(url) }) { Text("Save") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1213,7 +1239,7 @@ private fun ModelSelectionDialog(
                     title = { Text("Select Model") },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, Strings.t(Strings.close))
                         }
                     },
                     actions = {
@@ -1508,7 +1534,7 @@ private fun CustomModelDialog(
             Button(onClick = { onModelSaved(modelId) }) { Text("Save") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1537,7 +1563,7 @@ private fun SystemPromptDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                Text("System Prompt", style = MaterialTheme.typography.titleLarge)
+                Text(Strings.t(Strings.systemPrompt), style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     "This prompt defines how the AI assistant behaves.",
@@ -1551,7 +1577,7 @@ private fun SystemPromptDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    label = { Text("System Prompt") },
+                    label = { Text(Strings.t(Strings.systemPrompt)) },
                     placeholder = { Text("Enter instructions for the AI...") },
                     shape = RoundedCornerShape(16.dp)
                 )
@@ -1622,7 +1648,7 @@ private fun VoiceLanguageDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1640,7 +1666,7 @@ private fun VoiceMethodDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Speech recognition") },
+        title = { Text(Strings.t(Strings.speechRecognition)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 methods.forEach { (id, name, description) ->
@@ -1669,7 +1695,7 @@ private fun VoiceMethodDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1716,7 +1742,7 @@ private fun WhisperModelDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1734,7 +1760,7 @@ private fun TtsMethodDialog(
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Speech engine") },
+        title = { Text(Strings.t(Strings.speechEngine)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 methods.forEach { (id, name, description) ->
@@ -1763,7 +1789,7 @@ private fun TtsMethodDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1812,7 +1838,7 @@ private fun FishModelDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1869,7 +1895,7 @@ private fun FishVoiceDialog(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { manualInput = false }) { Text("Cancel") }
+                TextButton(onClick = { manualInput = false }) { Text(Strings.t(Strings.cancel)) }
             }
         )
         return
@@ -1937,7 +1963,7 @@ private fun FishVoiceDialog(
             TextButton(onClick = { manualInput = true }) { Text("Type ID…") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -1951,7 +1977,7 @@ private fun SearchEngineDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Search engine") },
+        title = { Text(Strings.t(Strings.searchEngine)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SearchEngines.ALL.forEach { engine ->
@@ -1988,7 +2014,7 @@ private fun SearchEngineDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }
@@ -2012,7 +2038,7 @@ private fun PersonaDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Personas") },
+        title = { Text(Strings.t(Strings.personas)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
@@ -2059,7 +2085,7 @@ private fun PersonaDialog(
                         }
                         IconButton(onClick = { deleting = p.id }, modifier = Modifier.size(32.dp)) {
                             Icon(
-                                Icons.Default.Delete, "Delete",
+                                Icons.Default.Delete, Strings.t(Strings.delete),
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -2083,8 +2109,8 @@ private fun PersonaDialog(
                             AppSettings.updatePersona(renaming!!, renameText)
                             personas = AppSettings.personas()
                             renaming = null
-                        }) { Text("Save name") }
-                        TextButton(onClick = { renaming = null }) { Text("Cancel") }
+                        }) { Text(Strings.t(Strings.saveName)) }
+                        TextButton(onClick = { renaming = null }) { Text(Strings.t(Strings.cancel)) }
                     }
                 }
 
@@ -2104,8 +2130,8 @@ private fun PersonaDialog(
                             colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error
                             )
-                        ) { Text("Delete") }
-                        TextButton(onClick = { deleting = null }) { Text("Cancel") }
+                        ) { Text(Strings.t(Strings.delete)) }
+                        TextButton(onClick = { deleting = null }) { Text(Strings.t(Strings.cancel)) }
                     }
                 }
 
@@ -2135,11 +2161,61 @@ private fun PersonaDialog(
                         }
                     },
                     enabled = newName.isNotBlank()
-                ) { Text("Save persona") }
+                ) { Text(Strings.t(Strings.savePersona)) }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.close)) }
+        }
+    )
+}
+
+/** App UI language picker: system default, English, Português (Brasil). */
+@Composable
+private fun AppLanguageDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val langs = listOf(
+        Triple("", "System default", "Follows the device language"),
+        Triple("en", "English", ""),
+        Triple("pt", "Português (Brasil)", "")
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.appLanguage)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                langs.forEach { (code, name, description) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = current == code,
+                            onClick = { onSelected(code) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(name, style = MaterialTheme.typography.bodyLarge)
+                            if (description.isNotBlank()) {
+                                Text(
+                                    description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
 }

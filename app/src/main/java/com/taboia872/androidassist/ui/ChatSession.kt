@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -43,7 +44,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     var reasoning by mutableStateOf("")
         private set
 
-    /** Short status label: "Thinking..." / "Typing..." while busy. */
+    /** Short status label: Strings.t(Strings.thinking) / Strings.t(Strings.typing) while busy. */
     var status by mutableStateOf("")
         private set
 
@@ -85,7 +86,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         if (busy) return
         busy = true
         reasoning = ""
-        status = "Thinking..."
+        status = Strings.t(Strings.thinking)
         messages = messages + ChatMessage(
             "user",
             q.ifBlank { "What's in this image?" },
@@ -103,7 +104,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             var effectiveQuery = q
             var searchNote = ""
             if (AppSettings.config.value.webSearchEnabled) {
-                status = "Searching..."
+                status = Strings.t(Strings.searching)
                 val results = SearchEngines.search(q)
                 if (results.isNotEmpty()) {
                     searchNote =
@@ -133,7 +134,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         "anything uncertain as uncertain. Do NOT invent numbers, dates " +
                         "or facts.\n\n"
                 }
-                status = "Thinking..."
+                status = Strings.t(Strings.thinking)
             }
 
             val history = if (effectiveQuery == q) {
@@ -150,7 +151,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             ).collect { event ->
                 when (event) {
                     is StreamEvent.Content -> {
-                        status = "Typing..."
+                        status = Strings.t(Strings.typing)
                         answer.append(event.text)
                         val base = if (messages.lastOrNull()?.role == "assistant")
                             messages.dropLast(1) else messages

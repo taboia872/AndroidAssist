@@ -48,7 +48,9 @@ data class AppConfig(
     /** Active search engine: duckduckgo | brave | exa | langsearch */
     val searchEngine: String = "duckduckgo",
     /** Active persona id (profile); blank = default untitled profile */
-    val activePersonaId: String = ""
+    val activePersonaId: String = "",
+    /** App UI language: "" (system), "en" or "pt" (pt-BR) */
+    val appLanguage: String = ""
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -161,6 +163,7 @@ object AppSettings {
     private const val K_WEB_SEARCH = "web_search_enabled"
     private const val K_SEARCH_ENGINE = "search_engine"
     private const val K_ACTIVE_PERSONA = "active_persona_id"
+    private const val K_APP_LANGUAGE = "app_language"
     private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
@@ -229,7 +232,8 @@ object AppSettings {
             fishVoiceName = p.getString(K_FISH_VOICE_NAME, "") ?: "",
             webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false),
             searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo",
-            activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: ""
+            activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: "",
+            appLanguage = p.getString(K_APP_LANGUAGE, "") ?: ""
         )
     }
 
@@ -255,6 +259,7 @@ object AppSettings {
             .putBoolean(K_WEB_SEARCH, next.webSearchEnabled)
             .putString(K_SEARCH_ENGINE, next.searchEngine)
             .putString(K_ACTIVE_PERSONA, next.activePersonaId)
+            .putString(K_APP_LANGUAGE, next.appLanguage)
             .apply()
         _config.value = next
     }

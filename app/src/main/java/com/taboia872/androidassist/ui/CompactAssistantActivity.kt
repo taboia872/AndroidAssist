@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.i18n.Strings
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -428,7 +429,7 @@ private fun CompactAssistantSheet(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        "Listening...",
+                                        Strings.t(Strings.listening),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -554,9 +555,9 @@ private fun FullscreenAssistant(
                         )
                         Text(
                             when {
-                                listening -> "Listening..."
+                                listening -> Strings.t(Strings.listening)
                                 session.busy -> session.status.ifBlank { "Thinking..." }
-                                else -> "Ready"
+                                else -> Strings.t(Strings.ready)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -570,10 +571,10 @@ private fun FullscreenAssistant(
                 },
                 actions = {
                     IconButton(onClick = { session.reset(context.applicationContext) }) {
-                        Icon(Icons.Default.Refresh, "New Chat")
+                        Icon(Icons.Default.Refresh, Strings.t(Strings.newChat))
                     }
                     IconButton(onClick = onShowHistory) {
-                        Icon(Icons.Default.History, "Chat History")
+                        Icon(Icons.Default.History, Strings.t(Strings.chatHistory))
                     }
                     IconButton(onClick = onDismiss) {
                         Icon(Icons.Default.Close, "Close")
@@ -661,7 +662,7 @@ private fun FullscreenAssistant(
                     // No welcome card (user request) — empty state is just empty.
                 }
                 if (listening && transcript.isEmpty()) {
-                    item { ThinkingBubble("Listening...") }
+                    item { ThinkingBubble(Strings.t(Strings.listening)) }
                 }
                 if (transcript.isNotEmpty()) {
                     item { MessageBubble(ChatMessage("user", transcript)) }
