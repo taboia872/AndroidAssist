@@ -110,6 +110,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         append("\n---\n\n")
                     }
                     effectiveQuery = context + q
+                } else {
+                    // Search failed/empty (rate-limit, offline...): tell the
+                    // model explicitly so it does NOT hallucinate fresh
+                    // facts — the exact failure the user reported.
+                    effectiveQuery =
+                        "NOTE: a web search for this question was attempted but returned no results. " +
+                        "You have NO current information about this. Answer honestly: say you " +
+                        "cannot access live data right now, and clearly label anything uncertain " +
+                        "as uncertain. Do NOT invent numbers, dates or facts.\n\n" + q
                 }
                 status = "Thinking..."
             }
@@ -156,10 +165,8 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             }
 
             // Speak the finished answer when TTS is enabled (system engine,
-            // offline). Speak() strips markdown noise internally.
-            if (answer.isNotEmpty() &&
-                AppSettings.config.value.ttsEnabled
-            ) {
+            // offline). Failure is surfaced via TtsManager.state — never silent.
+            if (answer.isNotEmpty() && AppSettings.config.value.ttsEnabled) {
                 TtsManager.applyLanguage(AppSettings.config.value.voiceLanguage)
                 TtsManager.speak(answer.toString())
             }

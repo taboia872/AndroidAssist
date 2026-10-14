@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.TravelExplore
@@ -120,6 +121,7 @@ private enum class SettingsCategory(val label: String) {
 fun SettingsScreen(onBack: () -> Unit) {
     val cfg by AppSettings.config.collectAsState()
     val provider = LlmProviders.byId(cfg.providerId)
+    val context = LocalContext.current
 
     var settingsCategoryName by rememberSaveable { mutableStateOf(SettingsCategory.AI.name) }
     val settingsCategory = SettingsCategory.valueOf(settingsCategoryName)
@@ -292,21 +294,45 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
 
                     SettingsSection(title = "Speech Output") {
+                        val ttsState by TtsManager.state.collectAsState()
                         SettingsItemWithSwitch(
                             icon = Icons.Default.VolumeUp,
                             title = "Read answers aloud",
-                            subtitle = "System TTS engine • offline • no API key",
+                            subtitle = when (ttsState) {
+                                is TtsManager.TtsState.Failed ->
+                                    (ttsState as TtsManager.TtsState.Failed).reason
+                                is TtsManager.TtsState.Speaking -> "Speaking…"
+                                is TtsManager.TtsState.Initializing -> "TTS engine starting…"
+                                else -> "System TTS engine • offline • no API key"
+                            },
                             checked = cfg.ttsEnabled,
                             onCheckedChange = { enabled ->
                                 AppSettings.update { c -> c.copy(ttsEnabled = enabled) }
                                 if (!enabled) TtsManager.stop()
                             }
                         )
+                        SettingsItem(
+                            icon = Icons.Default.PlayArrow,
+                            title = "Test voice",
+                            subtitle = "Speak a short sentence now",
+                            onClick = {
+                                if (!TtsManager.speak(
+                                        "Voice output is working.",
+                                        utteranceId = "test"
+                                    )
+                                ) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "TTS not ready — is a TTS engine installed?",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        )
                     }
                 }
 
                 if (settingsCategory == SettingsCategory.SYSTEM) {
-                    val context = LocalContext.current
                     val roleManager = remember {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                             context.getSystemService(android.app.role.RoleManager::class.java)

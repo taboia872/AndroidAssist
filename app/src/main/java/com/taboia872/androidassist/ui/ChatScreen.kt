@@ -104,7 +104,7 @@ fun ChatScreen(
     var attachError by remember { mutableStateOf<String?>(null) }
 
     val attachLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let {
             val type = context.contentResolver.getType(it) ?: ""
@@ -344,7 +344,7 @@ fun ChatScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
-                        onClick = { attachLauncher.launch("image/*\napplication/pdf") },
+                        onClick = { attachLauncher.launch(arrayOf("image/*", "application/pdf")) },
                         enabled = !session.busy,
                         modifier = Modifier.size(48.dp)
                     ) {
