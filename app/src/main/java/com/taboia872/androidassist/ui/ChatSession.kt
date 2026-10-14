@@ -8,6 +8,7 @@ import com.taboia872.androidassist.llm.StreamEvent
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.DuckDuckGo
+import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
@@ -98,7 +99,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             var effectiveQuery = q
             if (AppSettings.config.value.webSearchEnabled) {
                 status = "Searching..."
-                val results = DuckDuckGo.search(q)
+                val results = SearchEngines.search(q)
                 if (results.isNotEmpty()) {
                     val context = buildString {
                         append("Web search results for \"$q\":\n")

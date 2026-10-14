@@ -102,6 +102,7 @@ import com.taboia872.androidassist.BuildConfig
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.llm.ModelInfo
+import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
@@ -144,6 +145,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showFishKeyDialog by remember { mutableStateOf(false) }
     var showFishModelDialog by remember { mutableStateOf(false) }
     var showFishVoiceDialog by remember { mutableStateOf(false) }
+    var showSearchEngineDialog by remember { mutableStateOf(false) }
+    var showSearchKeyDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -239,12 +242,45 @@ fun SettingsScreen(onBack: () -> Unit) {
                         SettingsItemWithSwitch(
                             icon = Icons.Default.TravelExplore,
                             title = "Search the web",
-                            subtitle = "DuckDuckGo • free • no API key • answers with fresh facts",
+                            subtitle = "Answers with fresh facts • ${SearchEngines.byId(cfg.searchEngine).name}",
                             checked = cfg.webSearchEnabled,
                             onCheckedChange = { enabled ->
                                 AppSettings.update { c -> c.copy(webSearchEnabled = enabled) }
                             }
                         )
+                        SettingsItem(
+                            icon = Icons.Default.Search,
+                            title = "Search engine",
+                            subtitle = SearchEngines.byId(cfg.searchEngine).name +
+                                if (SearchEngines.isConfigured(cfg.searchEngine)) ""
+                                else " • API key needed",
+                            onClick = { showSearchEngineDialog = true }
+                        )
+                        val engine = SearchEngines.byId(cfg.searchEngine)
+                        if (engine.keySlot != null) {
+                            SettingsItem(
+                                icon = Icons.Default.Key,
+                                title = "${engine.name} API Key",
+                                subtitle = if ((cfg.apiKeys[engine.keySlot] ?: "").isNotBlank())
+                                    "Configured ✓"
+                                else engine.hint,
+                                onClick = { showSearchKeyDialog = true }
+                            )
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                "Privacy: ${engine.privacy}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
                 }
 
@@ -640,6 +676,34 @@ fun SettingsScreen(onBack: () -> Unit) {
             },
             onDismiss = { showFishVoiceDialog = false }
         )
+    }
+
+    if (showSearchEngineDialog) {
+        SearchEngineDialog(
+            currentEngine = cfg.searchEngine,
+            onEngineSelected = { engineId ->
+                AppSettings.update { it.copy(searchEngine = engineId) }
+                showSearchEngineDialog = false
+            },
+            onDismiss = { showSearchEngineDialog = false }
+        )
+    }
+
+    if (showSearchKeyDialog) {
+        val engine = SearchEngines.byId(cfg.searchEngine)
+        if (engine.keySlot != null) {
+            val slot = engine.keySlot
+            ProviderKeyDialog(
+                providerName = engine.name,
+                hint = engine.hint,
+                hasExistingKey = (cfg.apiKeys[slot] ?: "").isNotBlank(),
+                onApiKeySaved = { key ->
+                    AppSettings.setApiKey(slot, key)
+                    showSearchKeyDialog = false
+                },
+                onDismiss = { showSearchKeyDialog = false }
+            )
+        }
     }
 }
 
@@ -1847,6 +1911,57 @@ private fun FishVoiceDialog(
             TextButton(onClick = { manualInput = true }) { Text("Type ID…") }
         },
         dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** Web search engine picker with per-engine privacy notes. */
+@Composable
+private fun SearchEngineDialog(
+    currentEngine: String,
+    onEngineSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search engine") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                SearchEngines.ALL.forEach { engine ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onEngineSelected(engine.id) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentEngine == engine.id,
+                            onClick = { onEngineSelected(engine.id) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(engine.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                engine.privacy,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                if (engine.keySlot == null) "No API key needed"
+                                else SearchEngines.isConfigured(engine.id).let {
+                                    if (it) "Key configured ✓" else engine.hint
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
