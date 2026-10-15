@@ -9,6 +9,7 @@ import com.taboia872.androidassist.llm.StreamEvent
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.SearchEngines
+import com.taboia872.androidassist.search.SearchOutcome
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
@@ -113,6 +114,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
             // Round 1: with tools declared. A tool_call may arrive here.
             var toolCall: Pair<String, String>? = null  // (id, query)
+            var searchNotice: String? = null
 
             LlmClient.chat(
                 history,
@@ -142,21 +144,28 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             if (call != null) {
                 val searchQuery = call.second.ifBlank { q }
                 status = Strings.t(Strings.searching)
-                val results = SearchEngines.search(searchQuery)
-                val toolResult = if (results.isNotEmpty()) {
-                    buildString {
-                        append("Web search results for \"$searchQuery\":\n")
-                        results.forEach { r ->
+                val outcome = SearchEngines.search(searchQuery)
+                val toolResult = when (outcome) {
+                    is SearchOutcome.Ok -> {
+                        buildString {
+                            append("Web search results for \"$searchQuery\":\n")
+                            outcome.results.forEach { r ->
+                                append("\n---\n")
+                                append("Title: ${r.title}\n")
+                                append("URL: ${r.url}\n")
+                                append("Snippet: ${r.snippet}")
+                            }
                             append("\n---\n")
-                            append("Title: ${r.title}\n")
-                            append("URL: ${r.url}\n")
-                            append("Snippet: ${r.snippet}")
                         }
-                        append("\n---\n")
                     }
-                } else {
-                    "The web search ran but returned no results. Tell the user " +
-                        "you could not find current data — do NOT invent facts."
+                    is SearchOutcome.Failed -> {
+                        // Surface the REAL reason to the model — and the user
+                        val engine = AppSettings.config.value.searchEngine
+                        searchNotice = "⚠️ Search ($engine): ${outcome.reason}"
+                        "The web search FAILED: ${outcome.reason}. " +
+                            "Tell the user the search is not working right now " +
+                            "(quote the reason) — do NOT invent facts."
+                    }
                 }
 
                 answer.setLength(0)
@@ -193,6 +202,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             ) {
                 messages = messages.dropLast(1) +
                     messages.last().copy(reasoning = finalReasoning)
+            }
+
+            // Search failure notice for the USER (small system-style line)
+            searchNotice?.let { notice ->
+                messages = messages + ChatMessage("assistant", notice)
             }
 
             // Speak the finished answer when TTS is enabled. Engine dispatch:

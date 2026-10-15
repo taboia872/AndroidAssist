@@ -10,6 +10,12 @@ import java.net.URLEncoder
 
 data class SearchResult(val title: String, val url: String, val snippet: String)
 
+/** Search result with an honest failure reason when it fails. */
+sealed class SearchOutcome {
+    data class Ok(val results: List<SearchResult>) : SearchOutcome()
+    data class Failed(val reason: String) : SearchOutcome()
+}
+
 /**
  * Keyless DuckDuckGo search client.
  *
@@ -62,13 +68,14 @@ object DuckDuckGo {
         return out.trim()
     }
 
-    suspend fun search(query: String, maxResults: Int = MAX_RESULTS): List<SearchResult> =
+    suspend fun search(query: String, maxResults: Int = MAX_RESULTS): SearchOutcome =
         withContext(Dispatchers.IO) {
             try {
-                searchDdg(query, maxResults)
+                val r = searchDdg(query, maxResults)
+                SearchOutcome.Ok(r)
             } catch (e: Exception) {
                 Log.e(TAG, "DuckDuckGo search failed", e)
-                emptyList()
+                SearchOutcome.Failed("network: ${e.message ?: e.javaClass.simpleName}")
             }
         }
 
@@ -88,10 +95,12 @@ object DuckDuckGo {
                 it.write(form)
             }
 
+            if (connection.responseCode == 202) {
+                // 202 = DDG's anomaly/rate-limit page — a FAILURE, not empty
+                throw RuntimeException("DuckDuckGo rate-limited this network (HTTP 202)")
+            }
             if (connection.responseCode != 200) {
-                // 202 = DDG's soft rate-limit/anomaly page
-                Log.w(TAG, "DuckDuckGo HTML error: HTTP ${connection.responseCode}")
-                return emptyList()
+                throw RuntimeException("HTTP ${connection.responseCode}")
             }
 
             val body = connection.inputStream.bufferedReader().readText()

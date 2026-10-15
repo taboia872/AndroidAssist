@@ -37,7 +37,7 @@ object SearchEngines {
         return (AppSettings.config.value.apiKeys[e.keySlot] ?: "").isNotBlank()
     }
 
-    suspend fun search(query: String): List<SearchResult> {
+    suspend fun search(query: String): SearchOutcome {
         return when (AppSettings.config.value.searchEngine) {
             "brave" -> braveSearch(query)
             "exa" -> exaSearch(query)
@@ -48,10 +48,10 @@ object SearchEngines {
 
     // ------------------------------------------------------------- Brave
     // GET api.search.brave.com/res/v1/web/search, X-Subscription-Token header
-    private suspend fun braveSearch(query: String): List<SearchResult> =
+    private suspend fun braveSearch(query: String): SearchOutcome =
         withContext(Dispatchers.IO) {
             val key = AppSettings.config.value.apiKeys["brave"] ?: ""
-            if (key.isBlank()) return@withContext emptyList()
+            if (key.isBlank()) return@withContext SearchOutcome.Failed("no Brave API key saved")
             try {
                 val url = "https://api.search.brave.com/res/v1/web/search?q=" +
                     URLEncoder.encode(query, "UTF-8") + "&count=5"
@@ -63,11 +63,15 @@ object SearchEngines {
                     setRequestProperty("X-Subscription-Token", key)
                 }
                 try {
-                    if (conn.responseCode != 200) return@withContext emptyList()
+                    if (conn.responseCode != 200) {
+                        return@withContext SearchOutcome.Failed("Brave HTTP ${conn.responseCode}")
+                    }
                     val root = JSONObject(conn.inputStream.bufferedReader().readText())
                     val results = root.optJSONObject("web")?.optJSONArray("results")
-                        ?: return@withContext emptyList()
-                    (0 until results.length()).mapNotNull { i ->
+                    if (results == null) {
+                        return@withContext SearchOutcome.Failed("Brave returned no web results")
+                    }
+                    val out = (0 until results.length()).mapNotNull { i ->
                         val r = results.optJSONObject(i) ?: return@mapNotNull null
                         val urlOut = r.optString("url")
                         if (urlOut.isBlank()) return@mapNotNull null
@@ -77,20 +81,21 @@ object SearchEngines {
                             snippet = r.optString("description")
                         )
                     }
+                    SearchOutcome.Ok(out)
                 } finally {
                     conn.disconnect()
                 }
             } catch (e: Exception) {
-                emptyList()
+                SearchOutcome.Failed("Brave network: ${e.message}")
             }
         }
 
     // ------------------------------------------------------------- Exa
     // POST api.exa.ai/search, Bearer key; contents.highlights for excerpts
-    private suspend fun exaSearch(query: String): List<SearchResult> =
+    private suspend fun exaSearch(query: String): SearchOutcome =
         withContext(Dispatchers.IO) {
             val key = AppSettings.config.value.apiKeys["exa"] ?: ""
-            if (key.isBlank()) return@withContext emptyList()
+            if (key.isBlank()) return@withContext SearchOutcome.Failed("no Exa API key saved")
             try {
                 val body = JSONObject().apply {
                     put("query", query)
@@ -110,10 +115,15 @@ object SearchEngines {
                     conn.outputStream.use {
                         it.write(body.toString().toByteArray(Charsets.UTF_8))
                     }
-                    if (conn.responseCode != 200) return@withContext emptyList()
+                    if (conn.responseCode != 200) {
+                        return@withContext SearchOutcome.Failed("Exa HTTP ${conn.responseCode}")
+                    }
                     val results = JSONObject(conn.inputStream.bufferedReader().readText())
-                        .optJSONArray("results") ?: return@withContext emptyList()
-                    (0 until results.length()).mapNotNull { i ->
+                        .optJSONArray("results")
+                    if (results == null) {
+                        return@withContext SearchOutcome.Failed("Exa returned no results")
+                    }
+                    val out = (0 until results.length()).mapNotNull { i ->
                         val r = results.optJSONObject(i) ?: return@mapNotNull null
                         val highlights = r.optJSONArray("highlights")
                         val snippet = if (highlights != null && highlights.length() > 0)
@@ -124,20 +134,21 @@ object SearchEngines {
                             snippet = snippet
                         )
                     }
+                    SearchOutcome.Ok(out)
                 } finally {
                     conn.disconnect()
                 }
             } catch (e: Exception) {
-                emptyList()
+                SearchOutcome.Failed("Exa network: ${e.message}")
             }
         }
 
     // ------------------------------------------------------------- LangSearch
     // POST api.langsearch.com/v1/web-search, Bearer key; contents.text
-    private suspend fun langSearch(query: String): List<SearchResult> =
+    private suspend fun langSearch(query: String): SearchOutcome =
         withContext(Dispatchers.IO) {
             val key = AppSettings.config.value.apiKeys["langsearch"] ?: ""
-            if (key.isBlank()) return@withContext emptyList()
+            if (key.isBlank()) return@withContext SearchOutcome.Failed("no LangSearch API key saved")
             try {
                 val body = JSONObject().apply {
                     put("query", query)
@@ -156,10 +167,15 @@ object SearchEngines {
                     conn.outputStream.use {
                         it.write(body.toString().toByteArray(Charsets.UTF_8))
                     }
-                    if (conn.responseCode != 200) return@withContext emptyList()
+                    if (conn.responseCode != 200) {
+                        return@withContext SearchOutcome.Failed("LangSearch HTTP ${conn.responseCode}")
+                    }
                     val results = JSONObject(conn.inputStream.bufferedReader().readText())
-                        .optJSONArray("results") ?: return@withContext emptyList()
-                    (0 until results.length()).mapNotNull { i ->
+                        .optJSONArray("results")
+                    if (results == null) {
+                        return@withContext SearchOutcome.Failed("LangSearch returned no results")
+                    }
+                    val out = (0 until results.length()).mapNotNull { i ->
                         val r = results.optJSONObject(i) ?: return@mapNotNull null
                         val url = r.optString("url")
                         if (url.isBlank()) return@mapNotNull null
@@ -169,11 +185,12 @@ object SearchEngines {
                             snippet = r.optString("text", r.optString("snippet", ""))
                         )
                     }
+                    SearchOutcome.Ok(out)
                 } finally {
                     conn.disconnect()
                 }
             } catch (e: Exception) {
-                emptyList()
+                SearchOutcome.Failed("LangSearch network: ${e.message}")
             }
         }
 }
