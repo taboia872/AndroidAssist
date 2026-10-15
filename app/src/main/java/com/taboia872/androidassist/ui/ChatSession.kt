@@ -93,6 +93,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         )
 
         scope.launch {
+            try {
+            // System prompt augmentation: models have no calendar — give
+            // them today's date so "que dia é hoje" works without search.
+            val today = java.text.SimpleDateFormat(
+                "yyyy-MM-dd (EEEE)", java.util.Locale.getDefault()
+            ).format(java.util.Date())
+            val basePrompt = AppSettings.config.value.systemPrompt +
+                "\n\nCurrent date: $today."
+
             // FUNCTION CALLING (OpenAI tools pattern): when web search is on,
             // the web_search TOOL is declared in the request — the model
             // DECIDES when it needs fresh facts and emits a tool_call; we run
@@ -107,7 +116,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
             LlmClient.chat(
                 history,
-                AppSettings.config.value.systemPrompt,
+                basePrompt,
                 toolsEnabled = useTools
             ).collect { event ->
                 when (event) {
@@ -153,7 +162,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 answer.setLength(0)
                 LlmClient.chat(
                     history,
-                    AppSettings.config.value.systemPrompt,
+                    basePrompt,
                     toolsEnabled = false,
                     toolCallId = call.first,
                     toolResult = toolResult
@@ -211,6 +220,13 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     )
                     ChatStore.setCurrentId(c, chatId)
                 }
+            }
+            } finally {
+                // ALWAYS release the session — the busy-stuck bug: the
+                // function-calling rewrite dropped this line and left the
+                // input/mic locked forever after the first answer.
+                busy = false
+                status = ""
             }
         }
     }

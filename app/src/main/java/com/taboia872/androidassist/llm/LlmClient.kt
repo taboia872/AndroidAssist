@@ -145,6 +145,11 @@ object LlmClient {
             if (cfg.apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer ${cfg.apiKey}")
         }
 
+        // Streamed tool-call accumulators (arguments arrive in fragments)
+        val pendingToolIds = mutableMapOf<Int, String>()
+        val pendingToolNames = mutableMapOf<Int, String>()
+        val pendingToolArgs = mutableMapOf<Int, String>()
+
         try {
             conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
@@ -174,33 +179,40 @@ object LlmClient {
                     val reasoning = delta.opt("reasoning_content") ?: delta.opt("reasoning")
                     if (reasoning is String && reasoning.isNotEmpty()) emit(StreamEvent.Reasoning(reasoning))
 
-                    // Tool calls (streamed function-call deltas)
+                    // Tool calls (streamed function-call deltas). Arguments
+                    // arrive FRAGMENTED across deltas — accumulate them and
+                    // emit ONE ToolCall with the complete query at the end.
                     val toolCalls = delta.optJSONArray("tool_calls")
                     if (toolCalls != null) {
                         for (t in 0 until toolCalls.length()) {
                             val tc = toolCalls.optJSONObject(t) ?: continue
+                            val idx = tc.optInt("index", 0)
+                            val id = tc.optJSONObject("id")
+                            val callId = if (id is String && id.isNotBlank()) id
+                            else pendingToolIds.getOrElse(idx) { "call_$idx" }
+                            pendingToolIds[idx] = callId
                             val fn = tc.optJSONObject("function") ?: continue
-                            val args = fn.optJSONObject("arguments") ?: fn.opt("arguments")
-                            val query = when (args) {
-                                is org.json.JSONObject -> args.optString("query", "")
-                                is String -> {
-                                    try {
-                                        org.json.JSONObject(args).optString("query", "")
-                                    } catch (e: Exception) { "" }
-                                }
-                                else -> ""
+                            if (fn.optString("name", "").isNotBlank()) {
+                                pendingToolNames[idx] = fn.optString("name")
                             }
-                            val id = tc.optString("id", "call_0")
-                            if (query.isNotBlank()) {
-                                emit(StreamEvent.ToolCall(id, query))
-                            } else if (fn.optString("name", "") == "web_search") {
-                                // name arrived, arguments may stream later;
-                                // emit with empty query so the caller waits
-                                emit(StreamEvent.ToolCall(id, ""))
+                            val args = fn.opt("arguments")
+                            when (args) {
+                                is String -> pendingToolArgs[idx] = (pendingToolArgs[idx] ?: "") + args
+                                is org.json.JSONObject -> pendingToolArgs[idx] = args.toString()
                             }
                         }
                     }
                 }
+            }
+            // Stream ended: assemble and emit any complete tool calls
+            for ((idx, callId) in pendingToolIds) {
+                val name = pendingToolNames[idx] ?: continue
+                if (name != "web_search") continue
+                val rawArgs = pendingToolArgs[idx] ?: ""
+                val query = try {
+                    org.json.JSONObject(rawArgs).optString("query", "")
+                } catch (e: Exception) { rawArgs }
+                emit(StreamEvent.ToolCall(callId, query))
             }
         } catch (e: Exception) {
             emit(StreamEvent.Error(e.message ?: e.javaClass.simpleName))

@@ -42,49 +42,60 @@ object FishTts {
         (AppSettings.config.value.apiKeys["fish"] ?: "").isNotBlank()
 
     /**
-     * List voices from FishAudio's public catalog: GET /model
-     * (root path — NOT /v1/model, which 404s since the API moved).
-     * Supports language filter (e.g. "pt") and page_size; returns
-     * {items:[{_id,title,description,languages,...}]}.
+     * List voices from FishAudio's public catalog: GET /model (root path).
+     * Server-side SEARCH via title= param (empirically confirmed —
+     * e.g. ?title=goku returns all goku voices) and PAGINATION via
+     * page_number (has_more=true means more pages exist).
      */
-    suspend fun listVoices(language: String = ""): Result<List<FishVoice>> =
-        withContext(Dispatchers.IO) {
-            val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-            if (key.isBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException("No FishAudio API key")
-                )
+    data class VoicePage(
+        val voices: List<FishVoice>,
+        val hasMore: Boolean
+    )
+
+    suspend fun listVoices(
+        language: String = "",
+        search: String = "",
+        pageNumber: Int = 1
+    ): Result<VoicePage> = withContext(Dispatchers.IO) {
+        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
+        if (key.isBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("No FishAudio API key")
+            )
+        }
+        runCatching {
+            val langQ = if (language.isNotBlank()) "&language=$language" else ""
+            val searchQ = if (search.isNotBlank())
+                "&title=" + java.net.URLEncoder.encode(search, "UTF-8") else ""
+            val url = "https://api.fish.audio/model?page_size=50" +
+                "&page_number=$pageNumber$langQ$searchQ"
+            val conn = Net.open(url).apply {
+                requestMethod = "GET"
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                setRequestProperty("Authorization", "Bearer $key")
+                setRequestProperty("Accept", "application/json")
             }
-            runCatching {
-                var url = "https://api.fish.audio/model?page_size=50"
-                if (language.isNotBlank()) url += "&language=$language"
-                val conn = Net.open(url).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 15_000
-                    readTimeout = 30_000
-                    setRequestProperty("Authorization", "Bearer $key")
-                    setRequestProperty("Accept", "application/json")
+            try {
+                if (conn.responseCode != 200) {
+                    throw RuntimeException("HTTP ${conn.responseCode}")
                 }
-                try {
-                    if (conn.responseCode != 200) {
-                        throw RuntimeException("HTTP ${conn.responseCode}")
-                    }
-                    val root = JSONObject(conn.inputStream.bufferedReader().readText())
-                    val items = root.optJSONArray("items") ?: org.json.JSONArray()
-                    val out = ArrayList<FishVoice>(items.length())
-                    for (i in 0 until items.length()) {
-                        val item = items.optJSONObject(i) ?: continue
-                        val id = item.optString("_id", "")
-                        if (id.isEmpty()) continue
-                        val title = item.optString("title", "").ifEmpty { "Voice $id" }
-                        out.add(FishVoice(id, title))
-                    }
-                    out
-                } finally {
-                    conn.disconnect()
+                val root = JSONObject(conn.inputStream.bufferedReader().readText())
+                val items = root.optJSONArray("items") ?: org.json.JSONArray()
+                val out = ArrayList<FishVoice>(items.length())
+                for (i in 0 until items.length()) {
+                    val item = items.optJSONObject(i) ?: continue
+                    val id = item.optString("_id", "")
+                    if (id.isEmpty()) continue
+                    val title = item.optString("title", "").ifEmpty { "Voice $id" }
+                    out.add(FishVoice(id, title))
                 }
+                VoicePage(out, root.optBoolean("has_more", false))
+            } finally {
+                conn.disconnect()
             }
         }
+    }
 
     suspend fun speak(text: String): Boolean = withContext(Dispatchers.IO) {
         val key = AppSettings.config.value.apiKeys["fish"] ?: ""

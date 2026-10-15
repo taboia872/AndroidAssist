@@ -1858,29 +1858,43 @@ private fun FishVoiceDialog(
     onVoiceSelected: (id: String, name: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var voices by remember { mutableStateOf<List<FishVoice>?>(null) }
+    val scope = rememberCoroutineScope()
+    var voices by remember { mutableStateOf<List<FishVoice>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var manualInput by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var langFilter by remember { mutableStateOf("") }
+    var page by remember { mutableStateOf(1) }
+    var hasMore by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(AppSettings.fishFavoriteList()) }
 
     fun refreshFavorites() {
         favorites = AppSettings.fishFavoriteList()
     }
 
-    LaunchedEffect(langFilter) {
+    // Load a page from the server. Server-side search via title= param;
+    // append=true keeps previous items (Load more).
+    suspend fun loadPage(search: String, lang: String, pageNumber: Int, append: Boolean) {
         loading = true
         error = null
-        FishTts.listVoices(langFilter).fold(
-            onSuccess = { voices = it },
+        FishTts.listVoices(lang, search, pageNumber).fold(
+            onSuccess = { pageData ->
+                voices = if (append) voices + pageData.voices else pageData.voices
+                hasMore = pageData.hasMore
+                page = pageNumber
+            },
             onFailure = { e ->
                 error = e.message
-                voices = emptyList()
             }
         )
         loading = false
+    }
+
+    // Reload (page 1) whenever language filter or the typed search changes
+    LaunchedEffect(langFilter, query) {
+        kotlinx.coroutines.delay(350)  // debounce typing
+        loadPage(query.trim(), langFilter, 1, append = false)
     }
 
     if (manualInput) {
@@ -2058,11 +2072,7 @@ private fun FishVoiceDialog(
                             )
                         }
                         else -> {
-                            val q = query.trim().lowercase()
-                            val filtered = voices.orEmpty().filter {
-                                q.isEmpty() || it.title.lowercase().contains(q)
-                            }
-                            items(filtered) { v ->
+                            items(voices) { v ->
                                 VoiceRow(
                                     voice = v,
                                     selected = currentVoiceId == v.id,
@@ -2073,6 +2083,21 @@ private fun FishVoiceDialog(
                                         refreshFavorites()
                                     }
                                 )
+                            }
+                            if (hasMore && !loading) {
+                                item {
+                                    OutlinedButton(
+                                        onClick = {
+                                            scope.launch {
+                                                loadPage(query.trim(), langFilter, page + 1, append = true)
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) { Text("Load more") }
+                                }
                             }
                         }
                     }
