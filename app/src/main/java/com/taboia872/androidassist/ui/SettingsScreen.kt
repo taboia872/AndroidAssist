@@ -57,9 +57,10 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -157,6 +158,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showSearchKeyDialog by remember { mutableStateOf(false) }
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showTtsLangDialog by remember { mutableStateOf(false) }
+    var showSearchCountDialog by remember { mutableStateOf(false) }
+    var showSearchRegionDialog by remember { mutableStateOf(false) }
+    var showSearchFreshnessDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
@@ -251,50 +256,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                     }
 
-                    SettingsSection(title = Strings.t(Strings.webSearchSection)) {
-                        SettingsItemWithSwitch(
-                            icon = Icons.Default.TravelExplore,
-                            title = Strings.t(Strings.searchTheWeb),
-                            subtitle = "Answers with fresh facts • ${SearchEngines.byId(cfg.searchEngine).name}",
-                            checked = cfg.webSearchEnabled,
-                            onCheckedChange = { enabled ->
-                                AppSettings.update { c -> c.copy(webSearchEnabled = enabled) }
-                            }
-                        )
-                        SettingsItem(
-                            icon = Icons.Default.Search,
-                            title = Strings.t(Strings.searchEngine),
-                            subtitle = SearchEngines.byId(cfg.searchEngine).name +
-                                if (SearchEngines.isConfigured(cfg.searchEngine)) ""
-                                else " • API key needed",
-                            onClick = { showSearchEngineDialog = true }
-                        )
-                        val engine = SearchEngines.byId(cfg.searchEngine)
-                        if (engine.keySlot != null) {
-                            SettingsItem(
-                                icon = Icons.Default.Key,
-                                title = "${engine.name} API Key",
-                                subtitle = if ((cfg.apiKeys[engine.keySlot] ?: "").isNotBlank())
-                                    "Configured ✓"
-                                else engine.hint,
-                                onClick = { showSearchKeyDialog = true }
-                            )
-                        }
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ) {
-                            Text(
-                                "Privacy: ${engine.privacy}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
+
                 }
 
                 if (settingsCategory == SettingsCategory.VOICE) {
@@ -303,22 +265,22 @@ fun SettingsScreen(onBack: () -> Unit) {
                             icon = Icons.Default.RecordVoiceOver,
                             title = Strings.t(Strings.speechRecognition),
                             subtitle = if (cfg.voiceMethod == "system")
-                                "System recognizer (free, no key)"
-                            else "Groq Whisper (online)",
+                                Strings.t(Strings.systemRecognizerShort)
+                            else Strings.t(Strings.groqWhisperOnline),
                             onClick = { showVoiceMethodDialog = true }
                         )
                         if (cfg.voiceMethod != "system") {
                             SettingsItem(
                                 icon = Icons.Default.SmartToy,
-                                title = "Whisper model",
+                                title = Strings.t(Strings.whisperModelItem),
                                 subtitle = cfg.whisperModel,
                                 onClick = { showWhisperModelDialog = true }
                             )
                         }
                         SettingsItemWithSwitch(
                             icon = Icons.Default.Mic,
-                            title = "Auto-start listening",
-                            subtitle = "Begin capturing audio the moment the assistant opens",
+                            title = Strings.t(Strings.autoStart),
+                            subtitle = Strings.t(Strings.autoStartSub),
                             checked = cfg.autoStartVoice,
                             onCheckedChange = {
                                 AppSettings.update { c -> c.copy(autoStartVoice = it) }
@@ -326,8 +288,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                         SettingsItemWithSwitch(
                             icon = Icons.AutoMirrored.Filled.Send,
-                            title = "Auto-send after speech",
-                            subtitle = "Send the transcript to the model as soon as speech ends",
+                            title = Strings.t(Strings.autoSend),
+                            subtitle = Strings.t(Strings.autoSendSub),
                             checked = cfg.autoSendVoice,
                             onCheckedChange = {
                                 AppSettings.update { c -> c.copy(autoSendVoice = it) }
@@ -335,16 +297,16 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                         SettingsItem(
                             icon = Icons.Default.Translate,
-                            title = "Recognition language",
-                            subtitle = cfg.voiceLanguage.ifBlank { "System default" },
+                            title = Strings.t(Strings.recognitionLanguage),
+                            subtitle = cfg.voiceLanguage.ifBlank { Strings.t(Strings.systemDefault) },
                             onClick = { showVoiceLangDialog = true }
                         )
                         if (cfg.voiceMethod != "system") {
                             SettingsItem(
                                 icon = Icons.Default.Key,
-                                title = "Groq API Key",
+                                title = Strings.t(Strings.groqApiKey),
                                 subtitle = if ((cfg.apiKeys["groq"] ?: "").isNotBlank())
-                                    "Configured ✓" else "Required for Whisper • free at console.groq.com/keys",
+                                    Strings.t(Strings.configured) else Strings.t(Strings.requiredForWhisper),
                                 onClick = { showVoiceGroqKeyDialog = true }
                             )
                         }
@@ -359,16 +321,16 @@ fun SettingsScreen(onBack: () -> Unit) {
                         val activeSubtitle = when (cfg.ttsMethod) {
                             "fish" -> when (val fs = fishState) {
                                 is TtsManager.TtsState.Failed -> fs.reason
-                                is TtsManager.TtsState.Speaking -> "Speaking…"
-                                is TtsManager.TtsState.Initializing -> "FishAudio: synthesizing…"
+                                is TtsManager.TtsState.Speaking -> Strings.t(Strings.speaking)
+                                is TtsManager.TtsState.Initializing -> Strings.t(Strings.fishSynth)
                                 else -> "FishAudio online • ${cfg.fishModel}"
                             }
                             else -> when (ttsState) {
                                 is TtsManager.TtsState.Failed ->
                                     (ttsState as TtsManager.TtsState.Failed).reason
-                                is TtsManager.TtsState.Speaking -> "Speaking…"
-                                is TtsManager.TtsState.Initializing -> "TTS engine starting…"
-                                else -> "System TTS engine • offline • no API key"
+                                is TtsManager.TtsState.Speaking -> Strings.t(Strings.speaking)
+                                is TtsManager.TtsState.Initializing -> Strings.t(Strings.ttsEngineStarting)
+                                else -> Strings.t(Strings.systemTtsOffline)
                             }
                         }
                         SettingsItemWithSwitch(
@@ -388,28 +350,36 @@ fun SettingsScreen(onBack: () -> Unit) {
                             icon = Icons.Default.RecordVoiceOver,
                             title = Strings.t(Strings.speechEngine),
                             subtitle = if (cfg.ttsMethod == "fish")
-                                "FishAudio (online, natural voices)"
-                            else "System TTS (offline)",
+                                Strings.t(Strings.fishOnlineNatural)
+                            else Strings.t(Strings.systemTtsOfflineShort),
                             onClick = { showTtsMethodDialog = true }
                         )
+                        if (cfg.ttsMethod != "fish") {
+                            SettingsItem(
+                                icon = Icons.Default.Translate,
+                                title = Strings.t(Strings.synthesisLanguage),
+                                subtitle = cfg.ttsLanguage.ifBlank { Strings.t(Strings.systemDefault) },
+                                onClick = { showTtsLangDialog = true }
+                            )
+                        }
                         if (cfg.ttsMethod == "fish") {
                             SettingsItem(
                                 icon = Icons.Default.Key,
-                                title = "FishAudio API Key",
+                                title = Strings.t(Strings.fishApiKey),
                                 subtitle = if ((cfg.apiKeys["fish"] ?: "").isNotBlank())
-                                    "Configured ✓" else "Required • fish.audio > API Keys",
+                                    Strings.t(Strings.configured) else Strings.t(Strings.requiredFish),
                                 onClick = { showFishKeyDialog = true }
                             )
                             SettingsItem(
                                 icon = Icons.Default.SmartToy,
-                                title = "Fish model",
+                                title = Strings.t(Strings.fishModelItem),
                                 subtitle = cfg.fishModel,
                                 onClick = { showFishModelDialog = true }
                             )
                             SettingsItem(
                                 icon = Icons.Default.Face,
                                 title = Strings.t(Strings.voiceTab),
-                                subtitle = cfg.fishVoiceName.ifBlank { "Platform default voice" },
+                                subtitle = cfg.fishVoiceName.ifBlank { Strings.t(Strings.platformDefaultVoice) },
                                 onClick = { showFishVoiceDialog = true }
                             )
                         }
@@ -427,11 +397,85 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 ) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "TTS not ready — is a TTS engine installed?",
+                                        Strings.t(Strings.ttsNotReady),
                                         android.widget.Toast.LENGTH_LONG
                                     ).show()
                                 }
                             }
+                        )
+                    }
+                }
+
+                if (settingsCategory == SettingsCategory.TOOLS) {
+                    SettingsSection(title = Strings.t(Strings.webSearchSection)) {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.TravelExplore,
+                            title = Strings.t(Strings.searchTheWeb),
+                            subtitle = "${Strings.t(Strings.freshFacts)} • ${SearchEngines.byId(cfg.searchEngine).name}",
+                            checked = cfg.webSearchEnabled,
+                            onCheckedChange = { enabled ->
+                                AppSettings.update { c -> c.copy(webSearchEnabled = enabled) }
+                            }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Search,
+                            title = Strings.t(Strings.searchEngine),
+                            subtitle = SearchEngines.byId(cfg.searchEngine).name +
+                                if (SearchEngines.isConfigured(cfg.searchEngine)) ""
+                                else " • ${Strings.t(Strings.apiKeyNeeded)}",
+                            onClick = { showSearchEngineDialog = true }
+                        )
+                        val engine = SearchEngines.byId(cfg.searchEngine)
+                        if (engine.keySlot != null) {
+                            SettingsItem(
+                                icon = Icons.Default.Key,
+                                title = "${engine.name} ${Strings.t(Strings.apiKeyItem)}",
+                                subtitle = if ((cfg.apiKeys[engine.keySlot] ?: "").isNotBlank())
+                                    Strings.t(Strings.configured)
+                                else engine.hint,
+                                onClick = { showSearchKeyDialog = true }
+                            )
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Text(
+                                "${Strings.t(Strings.privacyColon)} ${engine.privacy}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    SettingsSection(title = Strings.t(Strings.searchParamsSection)) {
+                        SettingsItem(
+                            icon = Icons.Default.Tune,
+                            title = Strings.t(Strings.resultCount),
+                            subtitle = "${cfg.searchResultCount} ${Strings.t(Strings.results)}",
+                            onClick = { showSearchCountDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Public,
+                            title = Strings.t(Strings.searchRegionLabel),
+                            subtitle = if (cfg.searchRegion.isBlank()) Strings.t(Strings.systemDefault)
+                            else regionName(cfg.searchRegion),
+                            onClick = { showSearchRegionDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Schedule,
+                            title = Strings.t(Strings.searchFreshnessLabel),
+                            subtitle = when (cfg.searchFreshness) {
+                                "day" -> Strings.t(Strings.freshDay)
+                                "week" -> Strings.t(Strings.freshWeek)
+                                "month" -> Strings.t(Strings.freshMonth)
+                                else -> Strings.t(Strings.freshAny)
+                            },
+                            onClick = { showSearchFreshnessDialog = true }
                         )
                     }
                 }
@@ -488,7 +532,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         if (!isDefaultAssistant) {
                             android.widget.Toast.makeText(
                                 context,
-                                "If no dialog appeared, select AndroidAssist in the system assistant settings",
+                                Strings.t(Strings.ifNoDialogAppeared),
                                 android.widget.Toast.LENGTH_LONG
                             ).show()
                             openSystemAssistantSettings()
@@ -502,7 +546,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = when (cfg.appLanguage) {
                                 "pt" -> "Português (Brasil)"
                                 "en" -> "English"
-                                else -> "System default"
+                                else -> Strings.t(Strings.systemDefault)
                             },
                             onClick = { showLanguageDialog = true }
                         )
@@ -512,7 +556,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             SettingsItem(
                                 icon = Icons.Default.AutoAwesome,
                                 title = Strings.t(Strings.setDefaultAssistant),
-                                subtitle = "Make AndroidAssist answer the assistant gesture",
+                                subtitle = Strings.t(Strings.setDefaultAssistantSub),
                                 onClick = {
                                     val rm = roleManager
                                     if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
@@ -529,9 +573,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                         } else {
                             SettingsItem(
                                 icon = Icons.Default.CheckCircle,
-                                title = "Default assistant",
-                                subtitle = "AndroidAssist answers the assistant gesture ✓",
-                                onClick = {}
+                                title = Strings.t(Strings.defaultAssistantOk),
+                                subtitle = Strings.t(Strings.defaultAssistantOkSub),
+                                onClick = { openSystemAssistantSettings() },
+                                trailingArrow = false
                             )
                         }
                     }
@@ -540,7 +585,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                             icon = Icons.Default.Info,
                             title = "AndroidAssist",
                             subtitle = "v${BuildConfig.VERSION_NAME}",
-                            onClick = {}
+                            onClick = {},
+                            trailingArrow = false
                         )
                     }
                 }
@@ -742,6 +788,51 @@ fun SettingsScreen(onBack: () -> Unit) {
         )
     }
 
+    if (showTtsLangDialog) {
+        TtsLanguageDialog(
+            currentLanguage = cfg.ttsLanguage,
+            onLanguageSelected = { lang ->
+                AppSettings.update { it.copy(ttsLanguage = lang) }
+                TtsManager.applyLanguage(lang)
+                showTtsLangDialog = false
+            },
+            onDismiss = { showTtsLangDialog = false }
+        )
+    }
+
+    if (showSearchCountDialog) {
+        SearchCountDialog(
+            current = cfg.searchResultCount,
+            onSelected = { n ->
+                AppSettings.update { it.copy(searchResultCount = n) }
+                showSearchCountDialog = false
+            },
+            onDismiss = { showSearchCountDialog = false }
+        )
+    }
+
+    if (showSearchRegionDialog) {
+        SearchRegionDialog(
+            current = cfg.searchRegion,
+            onSelected = { r ->
+                AppSettings.update { it.copy(searchRegion = r) }
+                showSearchRegionDialog = false
+            },
+            onDismiss = { showSearchRegionDialog = false }
+        )
+    }
+
+    if (showSearchFreshnessDialog) {
+        SearchFreshnessDialog(
+            current = cfg.searchFreshness,
+            onSelected = { f ->
+                AppSettings.update { it.copy(searchFreshness = f) }
+                showSearchFreshnessDialog = false
+            },
+            onDismiss = { showSearchFreshnessDialog = false }
+        )
+    }
+
     if (showPersonaDialog) {
         PersonaDialog(
             activeId = cfg.activePersonaId,
@@ -922,7 +1013,8 @@ private fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    trailingArrow: Boolean = true
 ) {
     ListItem(
         headlineContent = {
@@ -959,11 +1051,13 @@ private fun SettingsItem(
             }
         },
         trailingContent = {
-            Icon(
-                Icons.Default.ArrowDropDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-            )
+            if (trailingArrow) {
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                )
+            }
         },
         colors = ListItemDefaults.colors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
@@ -1041,12 +1135,20 @@ private fun ProviderSelectionDialog(
     onProviderSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var endpoints by remember { mutableStateOf(AppSettings.customEndpointList()) }
+    var editing by remember { mutableStateOf<AppSettings.CustomEndpoint?>(null) }
+    var newName by remember { mutableStateOf("") }
+    var newUrl by remember { mutableStateOf("") }
+    var addingNew by remember { mutableStateOf(false) }
+
+    fun refresh() { endpoints = AppSettings.customEndpointList() }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(Strings.t(Strings.cloudProvider), style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                LlmProviders.ALL.forEach { p ->
+                LlmProviders.ALL.filter { it.id != "custom" }.forEach { p ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1062,12 +1164,107 @@ private fun ProviderSelectionDialog(
                         Column {
                             Text(p.displayName, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                p.defaultBaseUrl.removePrefix("https://")
-                                    .ifBlank { "your own base URL" },
+                                p.defaultBaseUrl.removePrefix("https://"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // Saved custom endpoints — selectable, editable, deletable
+                Text(
+                    Strings.t(Strings.customEndpointsTitle),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                endpoints.forEach { ep ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentProviderId == "custom" && ep.id == activeCustomEndpointId(),
+                            onClick = {
+                                AppSettings.update {
+                                    it.copy(providerId = "custom", baseUrl = ep.baseUrl)
+                                }
+                                onProviderSelected("custom")
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(ep.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                ep.baseUrl.removePrefix("https://").removePrefix("http://"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(onClick = {
+                            editing = ep
+                            newName = ep.name
+                            newUrl = ep.baseUrl
+                        }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Edit, Strings.t(Strings.rename), modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = {
+                            AppSettings.deleteCustomEndpoint(ep.id)
+                            refresh()
+                        }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Delete, Strings.t(Strings.delete),
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Add / edit form
+                if (editing != null || addingNew) {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(Strings.t(Strings.nameLabel)) },
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = newUrl,
+                        onValueChange = { newUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(Strings.t(Strings.baseUrl)) },
+                        placeholder = { Text("http://192.168.0.10:11434/v1") },
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            if (newUrl.isNotBlank()) {
+                                AppSettings.saveCustomEndpoint(editing?.id, newName, newUrl)
+                                editing = null
+                                addingNew = false
+                                newName = ""; newUrl = ""
+                                refresh()
+                            }
+                        }) { Text(Strings.t(Strings.save)) }
+                        TextButton(onClick = { editing = null; addingNew = false; newName = ""; newUrl = "" }) {
+                            Text(Strings.t(Strings.cancel))
+                        }
+                    }
+                } else {
+                    TextButton(onClick = { addingNew = true }) {
+                        Text(Strings.t(Strings.addEndpoint))
                     }
                 }
             }
@@ -1076,6 +1273,12 @@ private fun ProviderSelectionDialog(
             TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
+}
+
+/** Marks the saved endpoint whose URL matches the active baseUrl. */
+private fun activeCustomEndpointId(): String {
+    val cur = AppSettings.config.value.baseUrl
+    return AppSettings.customEndpointList().firstOrNull { it.baseUrl == cur }?.id ?: ""
 }
 
 @Composable
@@ -1091,12 +1294,12 @@ private fun ProviderKeyDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("$providerName API Key") },
+        title = { Text("$providerName ${Strings.t(Strings.apiKeyItem)}") },
         text = {
             Column {
                 if (hasExistingKey) {
                     Text(
-                        "An API key is already configured. Enter a new key to replace it.",
+                        Strings.t(Strings.anApiKeyIsConfigured),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1112,7 +1315,7 @@ private fun ProviderKeyDialog(
                     value = apiKey,
                     onValueChange = { apiKey = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key") },
+                    label = { Text(Strings.t(Strings.apiKeyItem)) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     visualTransformation = if (visible) VisualTransformation.None
@@ -1132,7 +1335,7 @@ private fun ProviderKeyDialog(
             Button(
                 onClick = { onApiKeySaved(apiKey) },
                 enabled = apiKey.isNotBlank()
-            ) { Text("Save") }
+            ) { Text(Strings.t(Strings.save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
@@ -1150,11 +1353,11 @@ private fun BaseUrlDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Base URL") },
+        title = { Text(Strings.t(Strings.baseUrl)) },
         text = {
             Column {
                 Text(
-                    "OpenAI-compatible endpoint. Leave the provider default unless you run your own server (e.g. Ollama on http://192.168.0.10:11434/v1).",
+                    Strings.t(Strings.openaiCompatibleHint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1163,7 +1366,7 @@ private fun BaseUrlDialog(
                     value = url,
                     onValueChange = { url = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Base URL") },
+                    label = { Text(Strings.t(Strings.baseUrl)) },
                     placeholder = { Text("http://192.168.0.10:11434/v1") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp)
@@ -1171,7 +1374,7 @@ private fun BaseUrlDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onUrlSaved(url) }) { Text("Save") }
+            Button(onClick = { onUrlSaved(url) }) { Text(Strings.t(Strings.save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
@@ -1239,7 +1442,7 @@ private fun ModelSelectionDialog(
         ) {
             Column {
                 TopAppBar(
-                    title = { Text("Select Model") },
+                    title = { Text(Strings.t(Strings.selectModel)) },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, Strings.t(Strings.close))
@@ -1250,7 +1453,7 @@ private fun ModelSelectionDialog(
                             onClick = { load(force = true) },
                             enabled = !loading
                         ) {
-                            Icon(Icons.Default.Refresh, "Refresh catalog")
+                            Icon(Icons.Default.Refresh, Strings.t(Strings.refreshCatalogBtn))
                         }
                     }
                 )
@@ -1262,7 +1465,7 @@ private fun ModelSelectionDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
-                    placeholder = { Text("Filter models...") },
+                    placeholder = { Text(Strings.t(Strings.filterModels)) },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp)
@@ -1279,7 +1482,7 @@ private fun ModelSelectionDialog(
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                "Loading models from server...",
+                                Strings.t(Strings.loadingModels),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1302,7 +1505,7 @@ private fun ModelSelectionDialog(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                "Could not load models:\n$error",
+                                "${Strings.t(Strings.couldNotLoadModels)}\n$error",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1312,10 +1515,10 @@ private fun ModelSelectionDialog(
                                 OutlinedButton(onClick = { load(force = true) }) {
                                     Icon(Icons.Default.Refresh, null)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Retry")
+                                    Text(Strings.t(Strings.retry))
                                 }
                                 OutlinedButton(onClick = { showCustomInput = true }) {
-                                    Text("Type model ID")
+                                    Text(Strings.t(Strings.typeModelIdButton))
                                 }
                             }
                         }
@@ -1338,8 +1541,8 @@ private fun ModelSelectionDialog(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    if (all.isEmpty()) "No models available"
-                                    else "No models match \"$query\"",
+                                    if (all.isEmpty()) Strings.t(Strings.noModelsAvailable)
+                                    else "${Strings.t(Strings.noModelsMatch)} \"$query\"",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1352,7 +1555,7 @@ private fun ModelSelectionDialog(
                                 if (freeModels.isNotEmpty()) {
                                     item {
                                         Text(
-                                            "Free Models",
+                                            Strings.t(Strings.freeModels),
                                             style = MaterialTheme.typography.titleSmall,
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(
@@ -1371,8 +1574,8 @@ private fun ModelSelectionDialog(
                                 if (premiumModels.isNotEmpty()) {
                                     item {
                                         Text(
-                                            if (freeModels.isNotEmpty()) "Premium Models"
-                                            else "Available Models",
+                                            if (freeModels.isNotEmpty()) Strings.t(Strings.premiumModels)
+                                            else Strings.t(Strings.availableModels),
                                             style = MaterialTheme.typography.titleSmall,
                                             color = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.padding(
@@ -1391,7 +1594,7 @@ private fun ModelSelectionDialog(
 
                                 item {
                                     Text(
-                                        "Manual",
+                                        Strings.t(Strings.manual),
                                         style = MaterialTheme.typography.titleSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(
@@ -1403,15 +1606,15 @@ private fun ModelSelectionDialog(
                                     ListItem(
                                         headlineContent = {
                                             Text(
-                                                "Custom model...",
+                                                Strings.t(Strings.customModel),
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
                                         },
                                         supportingContent = {
                                             Text(
-                                                if (currentModel.isNotBlank()) "Current: $currentModel"
-                                                else "Type any model ID this server accepts"
+                                                if (currentModel.isNotBlank()) "${Strings.t(Strings.current)} $currentModel"
+                                                else Strings.t(Strings.typeModelId)
                                             )
                                         },
                                         leadingContent = {
@@ -1432,7 +1635,7 @@ private fun ModelSelectionDialog(
 
                 AnimatedVisibility(visible = models != null) {
                     Text(
-                        "${models?.size ?: 0} models • live from server",
+                        "${models?.size ?: 0} ${Strings.t(Strings.modelsLiveFromServer)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
@@ -1470,7 +1673,7 @@ private fun ModelItem(
                         AssistChip(
                             onClick = {},
                             enabled = false,
-                            label = { Text("Free") },
+                            label = { Text(Strings.t(Strings.free)) },
                             leadingIcon = {
                                 Icon(Icons.Default.Savings, null, modifier = Modifier.size(14.dp))
                             }
@@ -1480,7 +1683,7 @@ private fun ModelItem(
                         AssistChip(
                             onClick = {},
                             enabled = false,
-                            label = { Text("Vision") },
+                            label = { Text(Strings.t(Strings.vision)) },
                             leadingIcon = {
                                 Icon(Icons.Default.Visibility, null, modifier = Modifier.size(14.dp))
                             }
@@ -1513,11 +1716,11 @@ private fun CustomModelDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Custom Model ID") },
+        title = { Text(Strings.t(Strings.customModelTitle)) },
         text = {
             Column {
                 Text(
-                    "Enter a model ID this server accepts (e.g. llama-3.3-70b-versatile).",
+                    Strings.t(Strings.enterModelId),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1526,15 +1729,15 @@ private fun CustomModelDialog(
                     value = modelId,
                     onValueChange = { modelId = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Model ID") },
-                    placeholder = { Text("provider/model-name") },
+                    label = { Text(Strings.t(Strings.modelIdLabel)) },
+                    placeholder = { Text(Strings.t(Strings.providerSlashModel)) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp)
                 )
             }
         },
         confirmButton = {
-            Button(onClick = { onModelSaved(modelId) }) { Text("Save") }
+            Button(onClick = { onModelSaved(modelId) }) { Text(Strings.t(Strings.save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
@@ -1569,7 +1772,7 @@ private fun SystemPromptDialog(
                 Text(Strings.t(Strings.systemPrompt), style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "This prompt defines how the AI assistant behaves.",
+                    Strings.t(Strings.promptBehaves),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1581,7 +1784,7 @@ private fun SystemPromptDialog(
                         .fillMaxWidth()
                         .weight(1f),
                     label = { Text(Strings.t(Strings.systemPrompt)) },
-                    placeholder = { Text("Enter instructions for the AI...") },
+                    placeholder = { Text(Strings.t(Strings.enterInstructions)) },
                     shape = RoundedCornerShape(16.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1595,12 +1798,12 @@ private fun SystemPromptDialog(
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
-                    ) { Text("Reset") }
+                    ) { Text(Strings.t(Strings.reset)) }
                     Button(
                         onClick = { onPromptSaved(prompt) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
-                    ) { Text("Save") }
+                    ) { Text(Strings.t(Strings.save)) }
                 }
             }
         }
@@ -1615,21 +1818,21 @@ private fun VoiceLanguageDialog(
     onDismiss: () -> Unit
 ) {
     val languages = listOf(
-        "" to "System default",
-        "pt" to "Português",
-        "en" to "English",
-        "es" to "Español",
-        "fr" to "Français",
-        "de" to "Deutsch",
-        "it" to "Italiano",
-        "ja" to "日本語",
-        "ko" to "한국어",
-        "zh" to "中文",
-        "ru" to "Русский"
+        "" to Strings.t(Strings.systemDefault),
+        "pt" to Strings.t(Strings.langPortuguese),
+        "en" to Strings.t(Strings.langEnglish),
+        "es" to Strings.t(Strings.langSpanish),
+        "fr" to Strings.t(Strings.langFrench),
+        "de" to Strings.t(Strings.langGerman),
+        "it" to Strings.t(Strings.langItalian),
+        "ja" to Strings.t(Strings.langJapanese),
+        "ko" to Strings.t(Strings.langKorean),
+        "zh" to Strings.t(Strings.langChinese),
+        "ru" to Strings.t(Strings.langRussian)"
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Recognition language") },
+        title = { Text(Strings.t(Strings.recognitionLanguageTitle)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 languages.forEach { (code, name) ->
@@ -1664,8 +1867,8 @@ private fun VoiceMethodDialog(
     onDismiss: () -> Unit
 ) {
     val methods = listOf(
-        Triple("system", "System recognizer", "Android's built-in (Google app). Free, no API key."),
-        Triple("groq", "Groq Whisper", "Online transcription using the Groq API key.")
+        Triple("system", Strings.t(Strings.systemRecognizer), Strings.t(Strings.systemRecognizerSub)),
+        Triple("groq", Strings.t(Strings.groqWhisper), Strings.t(Strings.groqWhisperSub))
     )
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1711,12 +1914,12 @@ private fun WhisperModelDialog(
     onDismiss: () -> Unit
 ) {
     val models = listOf(
-        Triple("whisper-large-v3", "whisper-large-v3", "Most accurate"),
-        Triple("whisper-large-v3-turbo", "whisper-large-v3-turbo", "Faster, slightly less accurate")
+        Triple("whisper-large-v3", "whisper-large-v3", Strings.t(Strings.mostAccurate)),
+        Triple("whisper-large-v3-turbo", "whisper-large-v3-turbo", Strings.t(Strings.fasterSlightlyLess))
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Whisper model") },
+        title = { Text(Strings.t(Strings.whisperModelItem)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 models.forEach { (id, name, description) ->
@@ -1758,8 +1961,8 @@ private fun TtsMethodDialog(
     onDismiss: () -> Unit
 ) {
     val methods = listOf(
-        Triple("system", "System TTS", "Offline, free, no API key. The device's engine."),
-        Triple("fish", "FishAudio", "Online, natural neural voices. Needs API key.")
+        Triple("system", Strings.t(Strings.systemTts), Strings.t(Strings.systemTtsSub)),
+        Triple("fish", Strings.t(Strings.fishAudio), Strings.t(Strings.fishAudioSub))
     )
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1805,14 +2008,14 @@ private fun FishModelDialog(
     onDismiss: () -> Unit
 ) {
     val models = listOf(
-        Triple("s2.1-pro-free", "s2.1-pro-free", "Free developer tier"),
-        Triple("s2.1-pro", "s2.1-pro", "Production quality"),
-        Triple("s2-pro", "s2-pro", "Previous generation"),
-        Triple("speech-1.5", "speech-1.5", "Legacy")
+        Triple("s2.1-pro-free", "s2.1-pro-free", Strings.t(Strings.fishModelS21Free)),
+        Triple("s2.1-pro", "s2.1-pro", Strings.t(Strings.fishModelS21)),
+        Triple("s2-pro", "s2-pro", Strings.t(Strings.fishModelS2pro)),
+        Triple("speech-1.5", "speech-1.5", Strings.t(Strings.fishModelLegacy))
     )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Fish model") },
+        title = { Text(Strings.t(Strings.fishModelItem)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 models.forEach { (id, name, description) ->
@@ -1918,7 +2121,7 @@ private fun FishVoiceDialog(
                         shape = RoundedCornerShape(14.dp)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = { onVoiceSelected(id.trim(), "Custom voice") }) {
+                    Button(onClick = { onVoiceSelected(id.trim(), Strings.t(Strings.customVoice)) }) {
                         Text(Strings.t(Strings.save))
                     }
                 }
@@ -1964,7 +2167,7 @@ private fun FishVoiceDialog(
                     FilterChip(
                         selected = langFilter.isBlank(),
                         onClick = { langFilter = "" },
-                        label = { Text("All") }
+                        label = { Text(Strings.t(Strings.all)) }
                     )
                     FilterChip(
                         selected = langFilter == "pt",
@@ -1988,7 +2191,7 @@ private fun FishVoiceDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
-                    placeholder = { Text("Filter by name...") },
+                    placeholder = { Text(Strings.t(Strings.filterByName)) },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp)
@@ -2002,7 +2205,7 @@ private fun FishVoiceDialog(
                                 Text(Strings.t(Strings.platformDefaultVoice))
                             },
                             supportingContent = {
-                                Text("reference_id")
+                                Text(Strings.t(Strings.referenceId))
                             },
                             leadingContent = {
                                 RadioButton(
@@ -2018,7 +2221,7 @@ private fun FishVoiceDialog(
                     if (favorites.isNotEmpty()) {
                         item {
                             Text(
-                                "★ Favorites",
+                                Strings.t(Strings.favorites),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(
@@ -2065,7 +2268,7 @@ private fun FishVoiceDialog(
                         }
                         error != null -> item {
                             Text(
-                                "Could not list voices: $error",
+                                "${Strings.t(Strings.couldNotListVoices)} $error",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.padding(16.dp)
@@ -2096,7 +2299,7 @@ private fun FishVoiceDialog(
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 8.dp),
                                         shape = RoundedCornerShape(12.dp)
-                                    ) { Text("Load more") }
+                                    ) { Text(Strings.t(Strings.loadMore)) }
                                 }
                             }
                         }
@@ -2126,7 +2329,7 @@ private fun VoiceRow(
             IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
                 Icon(
                     if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                    if (isFavorite) "Unfavorite" else "Favorite",
+                    if (isFavorite) Strings.t(Strings.unfavorite) else Strings.t(Strings.favorite),
                     tint = if (isFavorite) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp)
@@ -2177,9 +2380,9 @@ private fun SearchEngineDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                if (engine.keySlot == null) "No API key needed"
+                                if (engine.keySlot == null) Strings.t(Strings.noApiKeyNeeded)
                                 else SearchEngines.isConfigured(engine.id).let {
-                                    if (it) "Key configured ✓" else engine.hint
+                                    if (it) Strings.t(Strings.keyConfigured) else engine.hint
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary
@@ -2218,7 +2421,7 @@ private fun PersonaDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Each persona is a full profile: prompt, server, model, search and voice.",
+                    Strings.t(Strings.personaSubtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2243,7 +2446,7 @@ private fun PersonaDialog(
                             Text(p.name, style = MaterialTheme.typography.bodyLarge)
                             Text(
                                 "${LlmProviders.byId(p.providerId).displayName} • " +
-                                    p.model.ifBlank { "no model" },
+                                    p.model.ifBlank { Strings.t(Strings.noModel) },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2276,7 +2479,7 @@ private fun PersonaDialog(
                         onValueChange = { renameText = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("New name") },
+                        label = { Text(Strings.t(Strings.newName)) },
                         shape = RoundedCornerShape(14.dp)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -2293,7 +2496,7 @@ private fun PersonaDialog(
                 if (deleting != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Delete this persona?",
+                        Strings.t(Strings.deletePersonaQ),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2315,7 +2518,7 @@ private fun PersonaDialog(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Save current settings as a new persona",
+                    Strings.t(Strings.saveCurrentAsPersona),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2324,7 +2527,7 @@ private fun PersonaDialog(
                     onValueChange = { newName = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("Name (e.g. Raul)") },
+                    label = { Text(Strings.t(Strings.namePlaceholder)) },
                     shape = RoundedCornerShape(14.dp)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2354,7 +2557,7 @@ private fun AppLanguageDialog(
     onDismiss: () -> Unit
 ) {
     val langs = listOf(
-        Triple("", "System default", "Follows the device language"),
+        Triple("", Strings.t(Strings.systemDefault), Strings.t(Strings.followsDevice)),
         Triple("en", "English", ""),
         Triple("pt", "Português (Brasil)", "")
     )
@@ -2386,6 +2589,189 @@ private fun AppLanguageDialog(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** Human names for the DDG/Brave region codes. */
+private fun regionName(code: String): String = when (code) {
+    "br" -> "Brasil"
+    "us" -> "United States"
+    "uk" -> "United Kingdom"
+    "pt" -> "Portugal"
+    "es" -> "España"
+    "fr" -> "France"
+    "de" -> "Deutschland"
+    "it" -> "Italia"
+    "jp" -> "Japan"
+    "mx" -> "México"
+    "ar" -> "Argentina"
+    else -> code
+}
+
+/** Result count picker: 1..10 */
+@Composable
+private fun SearchCountDialog(
+    current: Int,
+    onSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.resultCount)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                (1..10).forEach { n ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(n) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = current == n, onClick = { onSelected(n) })
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(n.toString(), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** Region picker: system default + common countries. */
+@Composable
+private fun SearchRegionDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.searchRegionLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                listOf(
+                    "" to Strings.t(Strings.systemDefault),
+                    "br" to "Brasil",
+                    "us" to "United States",
+                    "uk" to "United Kingdom",
+                    "pt" to "Portugal",
+                    "es" to "España",
+                    "fr" to "France",
+                    "de" to "Deutschland",
+                    "it" to "Italia",
+                    "jp" to "Japan",
+                    "mx" to "México",
+                    "ar" to "Argentina"
+                ).forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = current == code, onClick = { onSelected(code) })
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** Freshness picker. */
+@Composable
+private fun SearchFreshnessDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        "" to Strings.t(Strings.freshAny),
+        "day" to Strings.t(Strings.freshDay),
+        "week" to Strings.t(Strings.freshWeek),
+        "month" to Strings.t(Strings.freshMonth)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.searchFreshnessLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                options.forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = current == code, onClick = { onSelected(code) })
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** TTS synthesis language — INDEPENDENT of the recognition language. */
+@Composable
+private fun TtsLanguageDialog(
+    currentLanguage: String,
+    onLanguageSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val languages = listOf(
+        "" to Strings.t(Strings.systemDefault),
+        "pt" to Strings.t(Strings.langPortuguese),
+        "en" to Strings.t(Strings.langEnglish),
+        "es" to Strings.t(Strings.langSpanish),
+        "fr" to Strings.t(Strings.langFrench),
+        "de" to Strings.t(Strings.langGerman),
+        "it" to Strings.t(Strings.langItalian),
+        "ja" to Strings.t(Strings.langJapanese),
+        "ko" to Strings.t(Strings.langKorean),
+        "zh" to Strings.t(Strings.langChinese),
+        "ru" to Strings.t(Strings.langRussian)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.synthesisLanguage)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                languages.forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onLanguageSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentLanguage == code,
+                            onClick = { onLanguageSelected(code) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             }

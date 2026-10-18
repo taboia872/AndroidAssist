@@ -2,11 +2,23 @@ package com.taboia872.androidassist.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -20,21 +32,24 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
 
 /**
- * Markdown renderer for CHAT — deliberately simple, chat-first.
+ * Markdown renderer for CHAT — chat-first with REAL code blocks.
  *
- * Scope decision (user): this app is a chat, not a technical data viewer.
- * Perfect table/code rendering is NOT the goal. What matters:
- *  - bold/italic/links/lists render well
- *  - `---` thematic breaks render as a real separator line (models open
- *    and close sections with them; rendering them literally was the bug)
- *  - ```code``` stays monospace, no syntax highlight attempts
- *  - tables: each row renders as "a | b | c" with inline formatting
- *    working inside cells — no grid alignment that truncates content
+ * The text splits into document blocks: fenced ``` code becomes a proper
+ * mono SURFACE with horizontal scroll (no highlight attempts), everything
+ * else flows through the inline parser (tables as "a | b | c" lines,
+ * thematic breaks as separators, headers scaled, lists bulleted).
  *
  * Text is selectable (long-press) via SelectionContainer.
  */
+
+private data class MdBlock(
+    val code: Boolean,
+    val text: String
+)
+
 @Composable
 fun MarkdownText(
     text: String,
@@ -47,36 +62,97 @@ fun MarkdownText(
     val context = LocalContext.current
     val baseStyle = LocalTextStyle.current.copy(color = color)
 
-    val annotatedString = remember(text, color, linkColor) {
-        parseMarkdown(text, baseStyle, linkColor, codeBackground)
-    }
+    val blocks = remember(text) { splitBlocks(text) }
 
-    // SelectionContainer: long-press anywhere on the response opens the
-    // native text-selection handles (partial or full copy). Single taps
-    // still go through to ClickableText for links.
-    SelectionContainer {
-        @Suppress("DEPRECATION")
-        ClickableText(
-            text = annotatedString,
-            modifier = modifier,
-            style = baseStyle,
-            onClick = { offset ->
-                annotatedString.getStringAnnotations("URL", offset, offset)
-                    .firstOrNull()?.let { annotation ->
-                        if (onLinkClick != null) {
-                            onLinkClick(annotation.item)
-                        } else {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // Ignore invalid URLs
-                            }
+    Column(modifier = modifier) {
+        blocks.forEachIndexed { i, block ->
+            if (i > 0) Spacer(modifier = Modifier.height(6.dp))
+            if (block.code) {
+                CodeBlockSurface(block.text, baseStyle, codeBackground)
+            } else {
+                val annotatedString = remember(block.text, color, linkColor) {
+                    parseMarkdown(block.text, baseStyle, linkColor, codeBackground)
+                }
+                SelectionContainer {
+                    @Suppress("DEPRECATION")
+                    ClickableText(
+                        text = annotatedString,
+                        style = baseStyle,
+                        onClick = { offset ->
+                            annotatedString.getStringAnnotations("URL", offset, offset)
+                                .firstOrNull()?.let { annotation ->
+                                    if (onLinkClick != null) {
+                                        onLinkClick(annotation.item)
+                                    } else {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                        }
+                                    }
+                                }
                         }
-                    }
+                    )
+                }
             }
-        )
+        }
     }
+}
+
+/** Fenced code -> mono surface with horizontal scroll. */
+@Composable
+private fun CodeBlockSurface(code: String, baseStyle: TextStyle, codeBackground: Color) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = codeBackground
+    ) {
+        Column {
+            Text(
+                code,
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(10.dp),
+                style = baseStyle.copy(fontFamily = FontFamily.Monospace)
+            )
+        }
+    }
+}
+
+/** Split into code blocks and prose blocks (fences ``` consumed whole). */
+private fun splitBlocks(text: String): List<MdBlock> {
+    val out = mutableListOf<MdBlock>()
+    val lines = text.split("\n")
+    var i = 0
+    val prose = StringBuilder()
+    fun flushProse() {
+        if (prose.isNotEmpty()) {
+            out.add(MdBlock(false, prose.toString().trimEnd()))
+            prose.setLength(0)
+        }
+    }
+    while (i < lines.size) {
+        val line = lines[i]
+        if (line.trimStart().startsWith("```")) {
+            flushProse()
+            val fenceIndent = line.indexOf("```")
+            val lang = line.trim().removePrefix("```").trim()
+            val codeLines = mutableListOf<String>()
+            i++
+            while (i < lines.size && !lines[i].trim().startsWith("```")) {
+                codeLines.add(lines[i])
+                i++
+            }
+            if (i < lines.size) i++  // skip closing fence
+            out.add(MdBlock(true, codeLines.joinToString("\n")))
+        } else {
+            if (prose.isNotEmpty()) prose.append("\n")
+            prose.append(line)
+            i++
+        }
+    }
+    flushProse()
+    return out
 }
 
 /** True when [line] is a GFM table row like " | a | b | ". */
@@ -96,9 +172,8 @@ private fun isTableSeparator(line: String): Boolean {
 }
 
 /**
- * Document-block markdown parser: fences and tables are consumed as WHOLE
- * blocks before inline formatting runs, so multi-line code and full tables
- * survive (the line-by-line version broke them — user report).
+ * Document-block markdown parser (prose): tables, thematic breaks, headers,
+ * lists then inline formatting per line.
  */
 private fun parseMarkdown(
     text: String,
@@ -118,27 +193,6 @@ private fun parseMarkdown(
 
             val line = lines[i]
 
-            // ---- fenced code block: consume until the closing fence ----
-            if (line.trimStart().startsWith("```")) {
-                if (!firstBlock) append("\n")  // keep blank line after prose
-                val fenceIndent = line.indexOf("```")
-                append(" ".repeat(fenceIndent))
-                withStyle(mono) {
-                    append("▌ ")  // code marker
-                    var first = true
-                    i++
-                    while (i < lines.size && !lines[i].trim().startsWith("```")) {
-                        if (!first) append("\n")
-                        append(lines[i])
-                        first = false
-                        i++
-                    }
-                }
-                if (i < lines.size) i++  // skip closing fence
-                firstBlock = false
-                continue
-            }
-
             // ---- GFM table: header + |---| separator + body rows ----
             if (isTableRow(line) && i + 1 < lines.size && isTableSeparator(lines[i + 1])) {
                 val headerCells = splitRow(line)
@@ -148,7 +202,6 @@ private fun parseMarkdown(
                     body.add(splitRow(lines[i]))
                     i++
                 }
-                // header
                 headerCells.forEachIndexed { idx, cell ->
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
                         appendInline(cell.trim(), linkColor, codeBackground)
@@ -157,7 +210,6 @@ private fun parseMarkdown(
                 }
                 append("\n")
                 withStyle(sep) { append("─".repeat(24)) }
-                // body
                 body.forEach { row ->
                     append("\n")
                     row.forEachIndexed { idx, cell ->

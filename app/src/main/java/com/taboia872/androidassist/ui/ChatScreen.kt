@@ -103,6 +103,7 @@ fun ChatScreen(
     var attachedPdfSummary by remember { mutableStateOf<String?>(null) }
     var attachedPdfText by remember { mutableStateOf<String?>(null) }
     var attachError by remember { mutableStateOf<String?>(null) }
+    var viewerImage by remember { mutableStateOf<String?>(null) }
 
     val attachLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -295,14 +296,14 @@ fun ChatScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                "Image attached",
+                                Strings.t(Strings.imageAttached),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = { clearAttachments() }, modifier = Modifier.size(32.dp)) {
                                 Icon(
-                                    Icons.Default.Close, "Remove",
+                                    Icons.Default.Close, Strings.t(Strings.remove),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -323,7 +324,7 @@ fun ChatScreen(
                             )
                             IconButton(onClick = { clearAttachments() }, modifier = Modifier.size(32.dp)) {
                                 Icon(
-                                    Icons.Default.Close, "Remove",
+                                    Icons.Default.Close, Strings.t(Strings.remove),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -395,15 +396,15 @@ fun ChatScreen(
                     ) {
                         when {
                             input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null -> Icon(
-                                Icons.AutoMirrored.Filled.Send, "Send",
+                                Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                             listening -> Icon(
-                                Icons.Default.Stop, "Stop listening",
+                                Icons.Default.Stop, Strings.t(Strings.stopListening),
                                 tint = MaterialTheme.colorScheme.onError
                             )
                             else -> Icon(
-                                Icons.Default.Mic, "Voice input",
+                                Icons.Default.Mic, Strings.t(Strings.voiceInput),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
@@ -426,17 +427,10 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(session.messages) { msg ->
-                    if (msg.reasoning.isNotBlank()) {
-                        ReasoningHeader(msg.reasoning)
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-                    MessageBubble(msg)
+                    MessageBubble(msg, onImageClick = { img -> viewerImage = img })
                 }
                 if (listening) {
                     item { ThinkingBubble(Strings.t(Strings.listening)) }
-                }
-                if (session.reasoning.isNotEmpty()) {
-                    item { ReasoningBubble(session.reasoning) }
                 }
                 if (session.busy && session.messages.lastOrNull()?.role != "assistant") {
                     item { ThinkingBubble(session.status) }
@@ -444,7 +438,7 @@ fun ChatScreen(
                 voiceError?.let { err ->
                     item {
                         Text(
-                            "Voice error: $err",
+                            Strings.t(Strings.voiceErrorColon) + " $err",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(horizontal = 8.dp)
@@ -455,12 +449,15 @@ fun ChatScreen(
 
             LaunchedEffect(
                 session.messages.size,
-                session.messages.lastOrNull()?.content,
-                session.reasoning
+                session.messages.lastOrNull()?.blocks?.lastOrNull()?.text
             ) {
                 if (session.messages.isNotEmpty()) {
                     listState.animateScrollToItem(session.messages.lastIndex)
                 }
+            }
+
+            viewerImage?.let { img ->
+                ImageViewerDialog(imageBase64 = img, onDismiss = { viewerImage = null })
             }
         }
     }

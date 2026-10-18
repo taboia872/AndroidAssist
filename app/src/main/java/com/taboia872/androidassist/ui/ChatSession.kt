@@ -18,14 +18,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+/**
+ * One renderable block inside a message bubble. Every thinking segment,
+ * every tool call and every answer round gets its OWN block — the
+ * llama.cpp-server chat model: simple chats render one answer block,
+ * agentic chats render the full think/answer/tool/answer chain.
+ */
+data class ChatBlock(
+    val kind: String,       // "reasoning" | "answer" | "tool"
+    val text: String,
+    /** Live-streaming flag: the block is still being written. */
+    val streaming: Boolean = false
+)
+
 data class ChatMessage(
     val role: String,
-    val content: String,
-    /** Final reasoning (thinking models), kept after the answer completes. */
-    val reasoning: String = "",
+    val blocks: List<ChatBlock>,
     /** Attached image (JPEG base64) shown in the bubble and sent to vision models. */
     val imageBase64: String? = null
-)
+) {
+    /** Flat answer text (LLM history + TTS). */
+    val answerText: String
+        get() = blocks.filter { it.kind == "answer" }.joinToString("\n\n") { it.text }
+}
 
 /**
  * One conversation: message list + streaming state + send() + persistence.
@@ -40,20 +55,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     var busy by mutableStateOf(false)
         private set
 
-    /** Reasoning tokens streamed before the answer (thinking models). */
-    var reasoning by mutableStateOf("")
-        private set
-
     /** Short status label: Strings.t(Strings.thinking) / Strings.t(Strings.typing) while busy. */
     var status by mutableStateOf("")
         private set
 
-    /** Index in `messages` of the bubble currently being streamed (-1 = none).
-     *  Multiple answer blocks (agentic models) each get their own bubble. */
-    private var streamingBubbleIdx = -1
-
-    var chatId by mutableStateOf(UUID.randomUUID().toString())
-        private set
+    private var chatId by mutableStateOf(UUID.randomUUID().toString())
 
     private val ctx: android.content.Context?
         get() = persistenceContext
@@ -61,11 +67,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     /** Restore a saved chat by id (history "continue"). */
     fun loadFrom(context: android.content.Context, id: String) {
         val loaded = ChatStore.load(context, id) ?: return
-        chatId = loaded.id
-        messages = loaded.messages.map {
-            ChatMessage(it.first, it.second, imageBase64 = it.third)
+        chatId = id
+        messages = loaded.map { m ->
+            ChatMessage(m.role, m.blocks.map { ChatBlock(it.kind, it.text) }, m.imageBase64)
         }
-        reasoning = ""
         status = ""
         ChatStore.setCurrentId(context, id)
     }
@@ -74,10 +79,39 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     fun reset(context: android.content.Context? = null) {
         chatId = UUID.randomUUID().toString()
         messages = emptyList()
-        reasoning = ""
         status = ""
         busy = false
         context?.let { ChatStore.setCurrentId(it, chatId) }
+    }
+
+    // -------- live block append helpers (streaming UI) --------
+
+    private fun appendBlock(block: ChatBlock): Int {
+        messages = messages + ChatMessage("assistant", listOf(block))
+        return messages.size - 1
+    }
+
+    private fun appendToBlock(msgIdx: Int, text: String) {
+        if (msgIdx !in messages.indices) return
+        messages = messages.toMutableList().also {
+            val m = it[msgIdx]
+            val blocks = m.blocks.toMutableList()
+            val lastIdx = blocks.indexOfLast { b -> b.streaming }
+            if (lastIdx >= 0) {
+                blocks[lastIdx] = blocks[lastIdx].copy(text = blocks[lastIdx].text + text)
+            } else {
+                blocks.add(ChatBlock("answer", text, streaming = true))
+            }
+            it[msgIdx] = m.copy(blocks = blocks)
+        }
+    }
+
+    private fun finalizeBlocks() {
+        messages = messages.map { msg ->
+            if (msg.blocks.any { it.streaming })
+                msg.copy(blocks = msg.blocks.map { it.copy(streaming = false) })
+            else msg
+        }
     }
 
     fun send(
@@ -89,12 +123,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         if (q.isEmpty() && imageBase64 == null) return
         if (busy) return
         busy = true
-        reasoning = ""
-        streamingBubbleIdx = -1
         status = Strings.t(Strings.thinking)
         messages = messages + ChatMessage(
             "user",
-            q.ifBlank { "What's in this image?" },
+            listOf(ChatBlock("answer", q.ifBlank { "What's in this image?" })),
             imageBase64 = imageBase64
         )
 
@@ -108,41 +140,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             val basePrompt = AppSettings.config.value.systemPrompt +
                 "\n\nCurrent date: $today."
 
-            // FUNCTION CALLING (OpenAI tools pattern): when web search is on,
-            // the web_search TOOL is declared in the request — the model
-            // DECIDES when it needs fresh facts and emits a tool_call; we run
-            // the search and send results back as role:"tool" on a follow-up
-            // request. The model knows the tool exists (user's insight).
-            //
-            // BLOCK ACCUMULATION: agentic models answer in MULTIPLE blocks
-            // (answer → tool call → answer). Each round appends a NEW
-            // assistant message instead of replacing the previous one, so
-            // nothing disappears — the block being streamed updates in place.
+            // FUNCTION CALLING (OpenAI tools pattern) with BLOCK ACCUMULATION:
+            // each streamed segment (reasoning / answer / tool call) becomes its
+            // own block; agentic rounds append NEW messages, nothing is replaced.
             val useTools = AppSettings.config.value.webSearchEnabled
-            val history = messages.map { Triple(it.role, it.content, it.imageBase64) }
+            val history = messages.map { it.role to it.answerText }
 
-            // Round 1: with tools declared. A tool_call may arrive here.
             var toolCall: Pair<String, String>? = null  // (id, query)
             var searchNotice: String? = null
 
-            // Tracks the index (in `messages`) of the bubble being streamed
-            // so only THAT bubble is updated while tokens arrive.
-            fun streamAppend(text: String) {
-                val lastIdx = messages.lastOrNull()?.let { messages.indexOf(it) } ?: -1
-                val lastIsStreaming = streamingBubbleIdx in messages.indices &&
-                    messages[streamingBubbleIdx].role == "assistant"
-                if (!lastIsStreaming) {
-                    messages = messages + ChatMessage("assistant", text)
-                    streamingBubbleIdx = messages.size - 1
-                } else {
-                    messages = messages.toMutableList().also {
-                        it[streamingBubbleIdx] = it[streamingBubbleIdx].copy(
-                            content = it[streamingBubbleIdx].content + text
-                        )
-                    }
-                }
-            }
-
+            // Round 1
+            var streamMsgIdx = -1
             LlmClient.chat(
                 history,
                 basePrompt,
@@ -151,29 +159,56 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 when (event) {
                     is StreamEvent.Content -> {
                         status = Strings.t(Strings.typing)
-                        streamAppend(event.text)
+                        if (streamMsgIdx < 0) {
+                            streamMsgIdx = appendBlock(ChatBlock("answer", event.text, streaming = true))
+                        } else {
+                            appendToBlock(streamMsgIdx, event.text)
+                        }
                     }
-                    is StreamEvent.Reasoning -> reasoning += event.text
+                    is StreamEvent.Reasoning -> {
+                        // Every reasoning segment = its own block. A new
+                        // reasoning burst while an answer block is streaming
+                        // closes the answer and starts a fresh block chain in
+                        // a NEW message (agentic think->answer->think rounds).
+                        if (streamMsgIdx < 0) {
+                            streamMsgIdx = appendBlock(ChatBlock("reasoning", event.text, streaming = true))
+                        } else {
+                            val m = messages[streamMsgIdx]
+                            val lastIsReasoning = m.blocks.lastOrNull()?.kind == "reasoning" &&
+                                m.blocks.lastOrNull()?.streaming == true
+                            if (lastIsReasoning) {
+                                appendToBlock(streamMsgIdx, event.text)
+                            } else {
+                                // close current block, open reasoning in same message
+                                messages = messages.toMutableList().also {
+                                    val mm = it[streamMsgIdx]
+                                    it[streamMsgIdx] = mm.copy(blocks = mm.blocks.map { b -> b.copy(streaming = false) })
+                                }
+                                messages = messages.toMutableList().also {
+                                    val mm = it[streamMsgIdx]
+                                    it[streamMsgIdx] = mm.copy(blocks = mm.blocks + ChatBlock("reasoning", event.text, streaming = true))
+                                }
+                            }
+                        }
+                    }
                     is StreamEvent.ToolCall -> { toolCall = event.id to event.query }
                     is StreamEvent.Error -> {
-                        messages = messages + ChatMessage("assistant", "\u26a0\ufe0f ${event.message}")
+                        appendBlock(ChatBlock("answer", "\u26a0\ufe0f ${event.message}"))
                         status = ""
                     }
                 }
             }
 
-            // Round 2 (only if the model called the tool): run the search and
-            // replay the conversation with the tool result attached. This
-            // produces a NEW assistant block — the pre-search answer stays.
+            // Round 2 (only if the model called the tool)
             val call = toolCall
             if (call != null) {
                 val searchQuery = call.second.ifBlank { q }
                 status = Strings.t(Strings.searching)
 
-                // Visible tool marker in the chat (user request)
+                // Tool block: visible marker of what the model searched
                 messages = messages + ChatMessage(
                     "assistant",
-                    "🔍 _web_search:_ \"$searchQuery\""
+                    listOf(ChatBlock("tool", "\ud83d\udd0d $searchQuery"))
                 )
 
                 val outcome = SearchEngines.search(searchQuery)
@@ -191,16 +226,14 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         }
                     }
                     is SearchOutcome.Failed -> {
-                        // Surface the REAL reason to the model — and the user
                         val engine = AppSettings.config.value.searchEngine
-                        searchNotice = "⚠️ Search ($engine): ${outcome.reason}"
+                        searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
                         "The web search FAILED: ${outcome.reason}. " +
                             "Tell the user the search is not working right now " +
                             "(quote the reason) — do NOT invent facts."
                     }
                 }
 
-                streamingBubbleIdx = -1  // next stream starts a NEW block
                 LlmClient.chat(
                     history,
                     basePrompt,
@@ -211,11 +244,30 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     when (event) {
                         is StreamEvent.Content -> {
                             status = Strings.t(Strings.typing)
-                            streamAppend(event.text)
+                            if (streamMsgIdx < 0 || !messages.getOrNull(streamMsgIdx)?.role.equals("assistant")) {
+                                streamMsgIdx = appendBlock(ChatBlock("answer", event.text, streaming = true))
+                            } else {
+                                val lastBlock = messages[streamMsgIdx].blocks.lastOrNull()
+                                if (lastBlock?.kind == "answer" && lastBlock.streaming) {
+                                    appendToBlock(streamMsgIdx, event.text)
+                                } else {
+                                    messages = messages.toMutableList().also {
+                                        val mm = it[streamMsgIdx]
+                                        it[streamMsgIdx] = mm.copy(blocks = mm.blocks.map { b -> b.copy(streaming = false) } + ChatBlock("answer", event.text, streaming = true))
+                                    }
+                                }
+                            }
                         }
-                        is StreamEvent.Reasoning -> reasoning += event.text
+                        is StreamEvent.Reasoning -> {
+                            if (streamMsgIdx >= 0) {
+                                messages = messages.toMutableList().also {
+                                    val mm = it[streamMsgIdx]
+                                    it[streamMsgIdx] = mm.copy(blocks = mm.blocks.map { b -> b.copy(streaming = false) } + ChatBlock("reasoning", event.text, streaming = true))
+                                }
+                            }
+                        }
                         is StreamEvent.Error -> {
-                            messages = messages + ChatMessage("assistant", "\u26a0\ufe0f ${event.message}")
+                            appendBlock(ChatBlock("answer", "\u26a0\ufe0f ${event.message}"))
                             status = ""
                         }
                         else -> {}
@@ -223,36 +275,27 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 }
             }
 
-            val finalReasoning = reasoning
-            reasoning = ""
-            if (finalReasoning.isNotBlank() && messages.isNotEmpty()) {
-                val lastAssistant = messages.indexOfLast { it.role == "assistant" }
-                if (lastAssistant >= 0) {
-                    messages = messages.toMutableList().also {
-                        it[lastAssistant] = it[lastAssistant].copy(
-                            reasoning = finalReasoning
-                        )
-                    }
-                }
-            }
+            finalizeBlocks()
+            status = ""
 
             // Search failure notice for the USER (small system-style line)
             searchNotice?.let { notice ->
-                messages = messages + ChatMessage("assistant", notice)
+                messages = messages + ChatMessage("assistant", listOf(ChatBlock("answer", notice)))
             }
 
             // Speak the finished answer when TTS is enabled. Engine dispatch:
             // "system" (offline) or "fish" (FishAudio online). Failures
             // surface via the state flows — never silent.
-            val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.content
+            val lastAssistantText = messages.lastOrNull { it.role == "assistant" }?.answerText
             if (!lastAssistantText.isNullOrBlank() &&
-                !lastAssistantText.startsWith("🔍") &&
+                !lastAssistantText.startsWith("\ud83d\udd0d") &&
+                !lastAssistantText.startsWith("\u26a0") &&
                 AppSettings.config.value.ttsEnabled
             ) {
                 when (AppSettings.config.value.ttsMethod) {
                     "fish" -> scope.launch { FishTts.speak(lastAssistantText) }
                     else -> {
-                        TtsManager.applyLanguage(AppSettings.config.value.voiceLanguage)
+                        TtsManager.applyLanguage(AppSettings.config.value.ttsLanguage)
                         TtsManager.speak(lastAssistantText)
                     }
                 }
@@ -261,20 +304,24 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // Auto-save the finished exchange (skip pure-error replies)
             val c = ctx
             if (c != null && messages.isNotEmpty() &&
-                messages.none { it.content.startsWith("⚠️") }
+                messages.none { b -> b.blocks.any { it.text.startsWith("\u26a0\ufe0f") } }
             ) {
                 withContext(Dispatchers.IO) {
                     ChatStore.save(
                         c, chatId,
-                        messages.map { Triple(it.role, it.content, it.imageBase64) }
+                        messages.map { m ->
+                            ChatStore.StoredMessage(
+                                m.role,
+                                m.blocks.map { ChatStore.Block(it.kind, it.text) },
+                                m.imageBase64
+                            )
+                        }
                     )
                     ChatStore.setCurrentId(c, chatId)
                 }
             }
             } finally {
-                // ALWAYS release the session — the busy-stuck bug: the
-                // function-calling rewrite dropped this line and left the
-                // input/mic locked forever after the first answer.
+                // ALWAYS release the session — busy-stuck bug stays fixed.
                 busy = false
                 status = ""
             }

@@ -93,7 +93,7 @@ class CompactAssistantActivity : ComponentActivity() {
     ) { granted ->
         if (!granted) {
             android.widget.Toast.makeText(
-                this, "Microphone permission is required for voice input",
+                this, Strings.t(Strings.micRequired),
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
@@ -102,7 +102,7 @@ class CompactAssistantActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
-        TtsManager.init(this, AppSettings.config.value.voiceLanguage)
+        TtsManager.init(this, AppSettings.config.value.ttsLanguage)
         enableEdgeToEdge()
 
         // Voice capture never passes through MainActivity — request here.
@@ -272,7 +272,7 @@ private fun CompactAssistantSheet(
     val lastAssistant = session.messages.lastOrNull { it.role == "assistant" }
     val showVoice = listening || transcript.isNotEmpty() || voiceError != null
     val hasContent = lastUser != null || lastAssistant != null ||
-        session.status.isNotEmpty() || session.reasoning.isNotEmpty() || showVoice
+        session.status.isNotEmpty() || showVoice
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize(),
@@ -344,13 +344,13 @@ private fun CompactAssistantSheet(
                         Row {
                             IconButton(onClick = onExpand) {
                                 Icon(
-                                    Icons.Default.OpenInFull, "Expand",
+                                    Icons.Default.OpenInFull, Strings.t(Strings.expand),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             IconButton(onClick = onDismiss) {
                                 Icon(
-                                    Icons.Default.Close, "Close",
+                                    Icons.Default.Close, Strings.t(Strings.close),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -373,26 +373,23 @@ private fun CompactAssistantSheet(
                         ) {
                             lastUser?.let {
                                 Text(
-                                    "You: ${it.content}",
+                                    "${Strings.t(Strings.youColon)} ${it.answerText}",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                if (lastAssistant != null || session.reasoning.isNotEmpty() || session.busy) {
+                                if (lastAssistant != null || session.busy) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
                             }
 
-                            if (session.reasoning.isNotEmpty() && lastAssistant == null) {
-                                Text(
-                                    session.reasoning,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontStyle = FontStyle.Italic,
-                                        lineHeight = 16.sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                                if (session.busy || session.status.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(8.dp))
+                            // Live reasoning streams as blocks inside the streaming
+                            // message; show live reasoning blocks here when present.
+                            val liveReasoning = session.messages.lastOrNull()
+                                ?.blocks?.filter { it.kind == "reasoning" }.orEmpty()
+                            if (liveReasoning.isNotEmpty() && lastAssistant == null) {
+                                liveReasoning.forEach { rb ->
+                                    ReasoningBlock(rb.text, liveStream = true)
+                                    Spacer(modifier = Modifier.height(6.dp))
                                 }
                             }
 
@@ -412,11 +409,19 @@ private fun CompactAssistantSheet(
                             }
 
                             lastAssistant?.let {
-                                MarkdownText(
-                                    text = it.content,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    linkColor = MaterialTheme.colorScheme.primary
-                                )
+                                // Render ALL blocks: reasoning (collapsed), tool, answers
+                                it.blocks.forEachIndexed { idx, block ->
+                                    if (idx > 0) Spacer(modifier = Modifier.height(8.dp))
+                                    when (block.kind) {
+                                        "reasoning" -> ReasoningBlock(block.text)
+                                        "tool" -> ToolBlock(block.text)
+                                        else -> if (block.text.isNotBlank()) MarkdownText(
+                                            text = block.text,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            linkColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
 
                             if (listening) {
@@ -439,7 +444,7 @@ private fun CompactAssistantSheet(
                             if (transcript.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    "You: $transcript",
+                                    "${Strings.t(Strings.youColon)} $transcript",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -448,13 +453,13 @@ private fun CompactAssistantSheet(
                             voiceError?.let { err ->
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    "Voice error: $err",
+                                    Strings.t(Strings.voiceErrorColon) + " $err",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
                         }
-                        LaunchedEffect(lastAssistant?.content, session.reasoning, transcript) {
+                        LaunchedEffect(lastAssistant?.blocks?.size, transcript) {
                             scrollState.animateScrollTo(scrollState.maxValue)
                         }
                     }
@@ -502,16 +507,16 @@ private fun CompactAssistantSheet(
                         ) {
                             when {
                                 input.isNotBlank() -> Icon(
-                                    Icons.AutoMirrored.Filled.Send, "Send",
+                                    Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                     tint = MaterialTheme.colorScheme.onPrimary
                                 )
                                 listening -> Icon(
-                                    Icons.Default.Stop, "Stop listening",
+                                    Icons.Default.Stop, Strings.t(Strings.stopListening),
                                     tint = MaterialTheme.colorScheme.onError,
                                     modifier = Modifier.size(22.dp)
                                 )
                                 else -> Icon(
-                                    Icons.Default.Mic, "Voice input",
+                                    Icons.Default.Mic, Strings.t(Strings.voiceInput),
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -541,6 +546,7 @@ private fun FullscreenAssistant(
     var input by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    var viewerImage by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -556,7 +562,7 @@ private fun FullscreenAssistant(
                         Text(
                             when {
                                 listening -> Strings.t(Strings.listening)
-                                session.busy -> session.status.ifBlank { "Thinking..." }
+                                session.busy -> session.status.ifBlank { Strings.t(Strings.thinking) }
                                 else -> Strings.t(Strings.ready)
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -629,15 +635,15 @@ private fun FullscreenAssistant(
                     ) {
                         when {
                             input.isNotBlank() -> Icon(
-                                Icons.AutoMirrored.Filled.Send, "Send",
+                                Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                             listening -> Icon(
-                                Icons.Default.Stop, "Stop listening",
+                                Icons.Default.Stop, Strings.t(Strings.stopListening),
                                 tint = MaterialTheme.colorScheme.onError
                             )
                             else -> Icon(
-                                Icons.Default.Mic, "Voice input",
+                                Icons.Default.Mic, Strings.t(Strings.voiceInput),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
@@ -665,17 +671,10 @@ private fun FullscreenAssistant(
                     item { ThinkingBubble(Strings.t(Strings.listening)) }
                 }
                 if (transcript.isNotEmpty()) {
-                    item { MessageBubble(ChatMessage("user", transcript)) }
+                    item { MessageBubble(ChatMessage("user", listOf(ChatBlock("answer", transcript)))) }
                 }
                 items(session.messages) { msg ->
-                    if (msg.reasoning.isNotBlank()) {
-                        ReasoningHeader(msg.reasoning)
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-                    MessageBubble(msg)
-                }
-                if (session.reasoning.isNotEmpty()) {
-                    item { ReasoningBubble(session.reasoning) }
+                    MessageBubble(msg, onImageClick = { viewerImage = it })
                 }
                 if (session.busy && session.messages.lastOrNull()?.role != "assistant") {
                     item { ThinkingBubble(session.status) }
@@ -683,7 +682,7 @@ private fun FullscreenAssistant(
                 voiceError?.let { err ->
                     item {
                         Text(
-                            "Voice error: $err",
+                            Strings.t(Strings.voiceErrorColon) + " $err",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -693,13 +692,16 @@ private fun FullscreenAssistant(
 
             LaunchedEffect(
                 session.messages.size,
-                session.messages.lastOrNull()?.content,
-                session.reasoning,
+                session.messages.lastOrNull()?.blocks?.lastOrNull()?.text,
                 transcript
             ) {
                 if (session.messages.isNotEmpty()) {
                     listState.animateScrollToItem(session.messages.lastIndex)
                 }
+            }
+
+            viewerImage?.let { img ->
+                ImageViewerDialog(imageBase64 = img, onDismiss = { viewerImage = null })
             }
         }
     }

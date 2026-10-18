@@ -27,8 +27,10 @@ data class AppConfig(
     // Voice (Groq Whisper, online phase)
     val autoStartVoice: Boolean = true,
     val autoSendVoice: Boolean = true,
-    /** BCP-47 tag; empty = system locale */
+    /** BCP-47 tag; empty = system locale — RECOGNITION (STT) language */
     val voiceLanguage: String = "",
+    /** BCP-47 tag; empty = system locale — SYNTHESIS (TTS) language, independent */
+    val ttsLanguage: String = "",
     /** Voice input engine: "system" (SpeechRecognizer) or "groq" (Whisper).
      *  Fresh installs default to SYSTEM (user request). Existing installs
      *  keep their saved value; migration below rewrites the old default. */
@@ -47,14 +49,22 @@ data class AppConfig(
     val fishVoiceName: String = "",
     /** Search the web (DuckDuckGo, keyless) before sending to the model */
     val webSearchEnabled: Boolean = false,
-    /** Active search engine: duckduckgo | brave | exa | langsearch */
+    /** Active search engine: parallel | duckduckgo | brave | exa | langsearch | jina */
     val searchEngine: String = "duckduckgo",
+    /** Number of search results per query (all engines) */
+    val searchResultCount: Int = 5,
+    /** Region bias for search results: "" (none) | "br" | "us" | ... */
+    val searchRegion: String = "",
+    /** Freshness filter: "" (any) | "day" | "week" | "month" */
+    val searchFreshness: String = "",
     /** Active persona id (profile); blank = default untitled profile */
     val activePersonaId: String = "",
     /** App UI language: "" (system), "en" or "pt" (pt-BR) */
     val appLanguage: String = "",
     /** Favorite FishAudio voices: JSON array of {id,title} */
-    val fishFavorites: String = "[]"
+    val fishFavorites: String = "[]",
+    /** Saved custom endpoints: JSON array of {id,name,baseUrl} */
+    val customEndpoints: String = "[]"
 ) {
     /** Key for the ACTIVE provider — the one place the active key is read. */
     val apiKey: String get() = apiKeys[providerId] ?: ""
@@ -82,6 +92,7 @@ data class Persona(
     val voiceMethod: String,
     val whisperModel: String,
     val voiceLanguage: String,
+    val ttsLanguage: String,
     val autoStartVoice: Boolean,
     val autoSendVoice: Boolean
 ) {
@@ -103,6 +114,7 @@ data class Persona(
             voiceMethod = c.voiceMethod,
             whisperModel = c.whisperModel,
             voiceLanguage = c.voiceLanguage,
+            ttsLanguage = c.ttsLanguage,
             autoStartVoice = c.autoStartVoice,
             autoSendVoice = c.autoSendVoice
         )
@@ -127,6 +139,7 @@ data class Persona(
                 voiceMethod = o.optString("voiceMethod", "groq"),
                 whisperModel = o.optString("whisperModel", "whisper-large-v3"),
                 voiceLanguage = o.optString("voiceLanguage", ""),
+                ttsLanguage = o.optString("ttsLanguage", ""),
                 autoStartVoice = o.optBoolean("autoStartVoice", true),
                 autoSendVoice = o.optBoolean("autoSendVoice", true)
             )
@@ -142,6 +155,7 @@ data class Persona(
         put("fishVoiceName", fishVoiceName)
         put("voiceMethod", voiceMethod); put("whisperModel", whisperModel)
         put("voiceLanguage", voiceLanguage)
+        put("ttsLanguage", ttsLanguage)
         put("autoStartVoice", autoStartVoice); put("autoSendVoice", autoSendVoice)
     }
 }
@@ -157,6 +171,7 @@ object AppSettings {
     private const val K_AUTO_START_VOICE = "auto_start_voice"
     private const val K_AUTO_SEND_VOICE = "auto_send_voice"
     private const val K_VOICE_LANG = "voice_language"
+    private const val K_TTS_LANG = "tts_language"
     private const val K_VOICE_METHOD = "voice_method"
     private const val K_WHISPER_MODEL = "whisper_model"
     private const val K_TTS_ENABLED = "tts_enabled"
@@ -166,9 +181,13 @@ object AppSettings {
     private const val K_FISH_VOICE_NAME = "fish_voice_name"
     private const val K_WEB_SEARCH = "web_search_enabled"
     private const val K_SEARCH_ENGINE = "search_engine"
+    private const val K_SEARCH_RESULT_COUNT = "search_result_count"
+    private const val K_SEARCH_REGION = "search_region"
+    private const val K_SEARCH_FRESHNESS = "search_freshness"
     private const val K_ACTIVE_PERSONA = "active_persona_id"
     private const val K_APP_LANGUAGE = "app_language"
     private const val K_FISH_FAVORITES = "fish_favorites"
+    private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
     private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
@@ -227,6 +246,7 @@ object AppSettings {
             autoStartVoice = p.getBoolean(K_AUTO_START_VOICE, true),
             autoSendVoice = p.getBoolean(K_AUTO_SEND_VOICE, true),
             voiceLanguage = p.getString(K_VOICE_LANG, "") ?: "",
+            ttsLanguage = p.getString(K_TTS_LANG, "") ?: "",
             voiceMethod = p.getString(K_VOICE_METHOD, "system") ?: "system",
             whisperModel = p.getString(K_WHISPER_MODEL, "whisper-large-v3")
                 ?: "whisper-large-v3",
@@ -237,9 +257,13 @@ object AppSettings {
             fishVoiceName = p.getString(K_FISH_VOICE_NAME, "") ?: "",
             webSearchEnabled = p.getBoolean(K_WEB_SEARCH, false),
             searchEngine = p.getString(K_SEARCH_ENGINE, "duckduckgo") ?: "duckduckgo",
+            searchResultCount = p.getInt(K_SEARCH_RESULT_COUNT, 5),
+            searchRegion = p.getString(K_SEARCH_REGION, "") ?: "",
+            searchFreshness = p.getString(K_SEARCH_FRESHNESS, "") ?: "",
             activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: "",
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
-            fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]"
+            fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
+            customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
         )
     }
 
@@ -255,6 +279,7 @@ object AppSettings {
             .putBoolean(K_AUTO_START_VOICE, next.autoStartVoice)
             .putBoolean(K_AUTO_SEND_VOICE, next.autoSendVoice)
             .putString(K_VOICE_LANG, next.voiceLanguage)
+            .putString(K_TTS_LANG, next.ttsLanguage)
             .putString(K_VOICE_METHOD, next.voiceMethod)
             .putString(K_WHISPER_MODEL, next.whisperModel)
             .putBoolean(K_TTS_ENABLED, next.ttsEnabled)
@@ -264,9 +289,13 @@ object AppSettings {
             .putString(K_FISH_VOICE_NAME, next.fishVoiceName)
             .putBoolean(K_WEB_SEARCH, next.webSearchEnabled)
             .putString(K_SEARCH_ENGINE, next.searchEngine)
+            .putInt(K_SEARCH_RESULT_COUNT, next.searchResultCount)
+            .putString(K_SEARCH_REGION, next.searchRegion)
+            .putString(K_SEARCH_FRESHNESS, next.searchFreshness)
             .putString(K_ACTIVE_PERSONA, next.activePersonaId)
             .putString(K_APP_LANGUAGE, next.appLanguage)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
+            .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
             .apply()
         _config.value = next
     }
@@ -341,6 +370,7 @@ object AppSettings {
                 voiceMethod = persona.voiceMethod,
                 whisperModel = persona.whisperModel,
                 voiceLanguage = persona.voiceLanguage,
+                ttsLanguage = persona.ttsLanguage,
                 autoStartVoice = persona.autoStartVoice,
                 autoSendVoice = persona.autoSendVoice,
                 activePersonaId = id
@@ -387,6 +417,51 @@ object AppSettings {
 
     fun isFishFavorite(id: String): Boolean =
         fishFavoriteList().any { it.first == id }
+
+    // ------------------------------------------------------ custom endpoints
+
+    data class CustomEndpoint(val id: String, val name: String, val baseUrl: String)
+
+    fun customEndpointList(): List<CustomEndpoint> {
+        return try {
+            val arr = org.json.JSONArray(_config.value.customEndpoints)
+            val out = mutableListOf<CustomEndpoint>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id")
+                if (id.isNotBlank()) out.add(
+                    CustomEndpoint(id, o.optString("name").ifBlank { id }, o.optString("baseUrl"))
+                )
+            }
+            out
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Save (or update) a named custom endpoint; returns its id. */
+    fun saveCustomEndpoint(id: String?, name: String, baseUrl: String): String {
+        val list = customEndpointList().toMutableList()
+        val eid = id ?: java.util.UUID.randomUUID().toString()
+        val entry = CustomEndpoint(eid, name.trim().ifBlank { "Endpoint" }, baseUrl.trim())
+        val idx = list.indexOfFirst { it.id == eid }
+        if (idx >= 0) list[idx] = entry else list.add(entry)
+        val arr = org.json.JSONArray()
+        list.forEach {
+            arr.put(org.json.JSONObject().put("id", it.id).put("name", it.name).put("baseUrl", it.baseUrl))
+        }
+        update { it.copy(customEndpoints = arr.toString()) }
+        return eid
+    }
+
+    fun deleteCustomEndpoint(id: String) {
+        val list = customEndpointList().filter { it.id != id }
+        val arr = org.json.JSONArray()
+        list.forEach {
+            arr.put(org.json.JSONObject().put("id", it.id).put("name", it.name).put("baseUrl", it.baseUrl))
+        }
+        update { it.copy(customEndpoints = arr.toString()) }
+    }
 
     /** Display name of the active persona (or default). */
     fun activePersonaName(): String {

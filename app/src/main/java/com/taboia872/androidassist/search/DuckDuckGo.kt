@@ -2,6 +2,7 @@ package com.taboia872.androidassist.search
 
 import android.util.Log
 import com.taboia872.androidassist.net.Net
+import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStreamWriter
@@ -90,7 +91,9 @@ object DuckDuckGo {
         }
 
         try {
-            val form = "q=" + URLEncoder.encode(query, "UTF-8")
+            val region = AppSettings.config.value.searchRegion
+            val form = "q=" + URLEncoder.encode(query, "UTF-8") +
+                (if (region.isNotBlank()) "&kl=$region" else "")
             OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use {
                 it.write(form)
             }

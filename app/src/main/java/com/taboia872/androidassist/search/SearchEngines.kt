@@ -23,10 +23,12 @@ object SearchEngines {
     )
 
     val ALL = listOf(
-        EngineInfo("duckduckgo", "DuckDuckGo", null, "High — privacy-first, no query profiling", "Free, no API key"),
+        EngineInfo("parallel", "Parallel Search (MCP)", null, "Medium — service queries: all queries + IP; no account", "Free, no API key • search.parallel.ai"),
+        EngineInfo("duckduckgo", "DuckDuckGo", null, "High — privacy-first, no query profiling", "Free, no API key (IP-filtered — VPN/mobile IPs often blocked)"),
         EngineInfo("brave", "Brave Search", "brave", "High — independent index, clear policy", "2,000 free/month (card required) • brave.com/search/api"),
         EngineInfo("exa", "Exa AI", "exa", "Medium — US service, pay-as-you-go", "$20 free credits • dashboard.exa.ai"),
-        EngineInfo("langsearch", "LangSearch", "langsearch", "Unknown — no published privacy policy found", "Free tier, daily tokens • langsearch.com")
+        EngineInfo("langsearch", "LangSearch", "langsearch", "Unknown — no published privacy policy found", "Free tier, daily tokens • langsearch.com"),
+        EngineInfo("jina", "Jina Reader (MCP)", "jina", "Medium — service queries: queries + IP; with key, tied to account", "Keyless with limits • jina.ai reader (free key lifts limits)")
     )
 
     fun byId(id: String): EngineInfo = ALL.firstOrNull { it.id == id } ?: ALL[0]
@@ -38,23 +40,35 @@ object SearchEngines {
     }
 
     suspend fun search(query: String): SearchOutcome {
-        return when (AppSettings.config.value.searchEngine) {
-            "brave" -> braveSearch(query)
-            "exa" -> exaSearch(query)
-            "langsearch" -> langSearch(query)
-            else -> DuckDuckGo.search(query)
+        val cfg = AppSettings.config.value
+        val count = cfg.searchResultCount.coerceIn(1, 10)
+        return when (cfg.searchEngine) {
+            "parallel" -> parallelSearch(query, count)
+            "brave" -> braveSearch(query, count)
+            "exa" -> exaSearch(query, count)
+            "langsearch" -> langSearch(query, count)
+            "jina" -> jinaSearch(query, count)
+            else -> DuckDuckGo.search(query, count)
         }
     }
 
     // ------------------------------------------------------------- Brave
     // GET api.search.brave.com/res/v1/web/search, X-Subscription-Token header
-    private suspend fun braveSearch(query: String): SearchOutcome =
+    private suspend fun braveSearch(query: String, count: Int): SearchOutcome =
         withContext(Dispatchers.IO) {
-            val key = AppSettings.config.value.apiKeys["brave"] ?: ""
+            val cfg = AppSettings.config.value
+            val key = cfg.apiKeys["brave"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no Brave API key saved")
             try {
+                val region = if (cfg.searchRegion.isNotBlank()) "&country=${cfg.searchRegion}" else ""
+                val fresh = when (cfg.searchFreshness) {
+                    "day" -> "&freshness=pd"
+                    "week" -> "&freshness=pw"
+                    "month" -> "&freshness=pm"
+                    else -> ""
+                }
                 val url = "https://api.search.brave.com/res/v1/web/search?q=" +
-                    URLEncoder.encode(query, "UTF-8") + "&count=5"
+                    URLEncoder.encode(query, "UTF-8") + "&count=$count$region$fresh"
                 val conn = Net.open(url).apply {
                     requestMethod = "GET"
                     connectTimeout = 15_000
@@ -92,7 +106,7 @@ object SearchEngines {
 
     // ------------------------------------------------------------- Exa
     // POST api.exa.ai/search, Bearer key; contents.highlights for excerpts
-    private suspend fun exaSearch(query: String): SearchOutcome =
+    private suspend fun exaSearch(query: String, count: Int): SearchOutcome =
         withContext(Dispatchers.IO) {
             val key = AppSettings.config.value.apiKeys["exa"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no Exa API key saved")
@@ -100,7 +114,14 @@ object SearchEngines {
                 val body = JSONObject().apply {
                     put("query", query)
                     put("type", "auto")
-                    put("numResults", 5)
+                    put("numResults", count)
+                    put("category", "news")
+                    put("startPublishedDate", when (AppSettings.config.value.searchFreshness) {
+                        "day" -> java.time.Instant.now().minusSeconds(86400).toString()
+                        "week" -> java.time.Instant.now().minusSeconds(7 * 86400).toString()
+                        "month" -> java.time.Instant.now().minusSeconds(30 * 86400).toString()
+                        else -> ""
+                    })
                     put("contents", JSONObject().put("highlights", true))
                 }
                 val conn = Net.open("https://api.exa.ai/search").apply {
@@ -145,14 +166,14 @@ object SearchEngines {
 
     // ------------------------------------------------------------- LangSearch
     // POST api.langsearch.com/v1/web-search, Bearer key; contents.text
-    private suspend fun langSearch(query: String): SearchOutcome =
+    private suspend fun langSearch(query: String, count: Int): SearchOutcome =
         withContext(Dispatchers.IO) {
             val key = AppSettings.config.value.apiKeys["langsearch"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no LangSearch API key saved")
             try {
                 val body = JSONObject().apply {
                     put("query", query)
-                    put("count", 5)
+                    put("count", count)
                     put("contents", JSONObject().put("text", true))
                 }
                 val conn = Net.open("https://api.langsearch.com/v1/web-search").apply {
@@ -193,4 +214,124 @@ object SearchEngines {
                 SearchOutcome.Failed("LangSearch network: ${e.message}")
             }
         }
+    // ------------------------------------------------------------- Parallel (MCP)
+    // POST search.parallel.ai/mcp JSON-RPC, keyless. LLM-oriented results
+    // with excerpts. The best keyless option for VPN/mobile-IP users: it is a
+    // real API service, not a scraped frontend, so there is no bot filter.
+    private suspend fun parallelSearch(query: String, count: Int): SearchOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                val params = JSONObject().apply {
+                    put("name", "web_search")
+                    put("arguments", JSONObject().apply {
+                        put("objective", query)
+                        put("search_queries", JSONArray().put(query))
+                    })
+                }
+                val req = JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", 1)
+                    put("method", "tools/call")
+                    put("params", params)
+                }
+                val text = postJsonRpc("https://search.parallel.ai/mcp", req, null)
+                // Response: result.content[0].text = JSON string with results[]
+                val root = JSONObject(text)
+                val results = root.optJSONArray("results")
+                    ?: return@withContext SearchOutcome.Failed("Parallel returned no results")
+                val out = ArrayList<SearchResult>()
+                for (i in 0 until results.length()) {
+                    if (out.size >= count) break
+                    val r = results.optJSONObject(i) ?: continue
+                    val url = r.optString("url")
+                    if (url.isBlank()) continue
+                    val excerpts = r.optJSONArray("excerpts")
+                    val snippet = if (excerpts != null && excerpts.length() > 0)
+                        excerpts.optString(0) else r.optString("snippet", "")
+                    out.add(SearchResult(
+                        title = r.optString("title").ifBlank { url },
+                        url = url,
+                        snippet = snippet
+                    ))
+                }
+                SearchOutcome.Ok(out)
+            } catch (e: Exception) {
+                SearchOutcome.Failed("Parallel: ${e.message}")
+            }
+        }
+
+    // ------------------------------------------------------------- Jina (MCP)
+    // POST mcp.jina.ai/v1 JSON-RPC. Keyless with limits; a key (jina slot)
+    // lifts them. search_web returns web results; also exposes read_url.
+    private suspend fun jinaSearch(query: String, count: Int): SearchOutcome =
+        withContext(Dispatchers.IO) {
+            val cfg = AppSettings.config.value
+            val key = cfg.apiKeys["jina"] ?: ""
+            try {
+                val params = JSONObject().apply {
+                    put("name", "search_web")
+                    put("arguments", JSONObject().apply {
+                        put("query", query)
+                        put("num", count)
+                    })
+                }
+                val req = JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("id", 1)
+                    put("method", "tools/call")
+                    put("params", params)
+                }
+                val text = postJsonRpc("https://mcp.jina.ai/v1", req, key.ifBlank { null })
+                val root = JSONObject(text)
+                val results = root.optJSONArray("results")
+                    ?: return@withContext SearchOutcome.Failed("Jina returned no results")
+                val out = ArrayList<SearchResult>()
+                for (i in 0 until results.length()) {
+                    if (out.size >= count) break
+                    val r = results.optJSONObject(i) ?: continue
+                    val url = r.optString("url")
+                    if (url.isBlank()) continue
+                    out.add(SearchResult(
+                        title = r.optString("title").ifBlank { url },
+                        url = url,
+                        snippet = r.optString("snippet", r.optString("content", ""))
+                    ))
+                }
+                SearchOutcome.Ok(out)
+            } catch (e: Exception) {
+                SearchOutcome.Failed("Jina: ${e.message}")
+            }
+        }
+
+    /** Minimal JSON-RPC POST; returns the "text" content of the tool result. */
+    private fun postJsonRpc(url: String, req: JSONObject, apiKey: String?): String {
+        val conn = Net.open(url).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json, text/event-stream")
+            if (!apiKey.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
+        }
+        try {
+            conn.outputStream.use { it.write(req.toString().toByteArray(Charsets.UTF_8)) }
+            if (conn.responseCode != 200) {
+                throw RuntimeException("HTTP ${conn.responseCode}")
+            }
+            var body = conn.inputStream.bufferedReader().readText()
+            // SSE envelope: "event: messagen\ndata: {...}" — take the data: line
+            if (body.contains("data: ")) {
+                body = body.substringAfter("data: ").substringBefore("\n\n").trim()
+            }
+            val root = JSONObject(body)
+            // tools/call result.content[0].text
+            val result = root.optJSONObject("result") ?: throw RuntimeException("no result in response")
+            val content = result.optJSONArray("content") ?: throw RuntimeException("no content")
+            val first = content.optJSONObject(0) ?: throw RuntimeException("empty content")
+            return first.optString("text")
+        } finally {
+            conn.disconnect()
+        }
+    }
 }

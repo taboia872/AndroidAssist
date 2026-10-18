@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
-        TtsManager.init(this, AppSettings.config.value.voiceLanguage)
+        TtsManager.init(this, AppSettings.config.value.ttsLanguage)
         enableEdgeToEdge()
         setContent {
             var screen by remember { mutableStateOf("chat") }
