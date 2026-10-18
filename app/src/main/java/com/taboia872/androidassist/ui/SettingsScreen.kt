@@ -122,6 +122,7 @@ private enum class SettingsCategory(val label: String) {
     AI(Strings.t(Strings.aiTab)),
     VOICE(Strings.t(Strings.voiceTab)),
     OUTPUT(Strings.t(Strings.outputTab)),
+    TOOLS(Strings.t(Strings.toolsTab)),
     SYSTEM(Strings.t(Strings.systemTab))
 }
 
@@ -1828,7 +1829,7 @@ private fun VoiceLanguageDialog(
         "ja" to Strings.t(Strings.langJapanese),
         "ko" to Strings.t(Strings.langKorean),
         "zh" to Strings.t(Strings.langChinese),
-        "ru" to Strings.t(Strings.langRussian)"
+        "ru" to Strings.t(Strings.langRussian)
     )
     AlertDialog(
         onDismissRequest = onDismiss,

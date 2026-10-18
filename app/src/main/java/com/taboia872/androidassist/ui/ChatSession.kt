@@ -144,7 +144,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // each streamed segment (reasoning / answer / tool call) becomes its
             // own block; agentic rounds append NEW messages, nothing is replaced.
             val useTools = AppSettings.config.value.webSearchEnabled
-            val history = messages.map { it.role to it.answerText }
+            val history = messages.map { Triple(it.role, it.answerText, it.imageBase64) }
 
             var toolCall: Pair<String, String>? = null  // (id, query)
             var searchNotice: String? = null
