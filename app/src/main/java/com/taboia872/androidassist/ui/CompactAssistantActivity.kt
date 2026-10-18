@@ -382,13 +382,13 @@ private fun CompactAssistantSheet(
                                 }
                             }
 
-                            // Live reasoning streams as blocks inside the streaming
-                            // message; show live reasoning blocks here when present.
-                            val liveReasoning = session.messages.lastOrNull()
+                            // Reasoning blocks of the turn message: streaming
+                            // ones render open (live), finished ones collapsed.
+                            val reasoningBlocks = session.messages.lastOrNull()
                                 ?.blocks?.filter { it.kind == "reasoning" }.orEmpty()
-                            if (liveReasoning.isNotEmpty() && lastAssistant == null) {
-                                liveReasoning.forEach { rb ->
-                                    ReasoningBlock(rb.text, liveStream = true)
+                            if (reasoningBlocks.isNotEmpty()) {
+                                reasoningBlocks.forEach { rb ->
+                                    ReasoningBlock(rb.text, liveStream = rb.streaming)
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
                             }
@@ -414,7 +414,7 @@ private fun CompactAssistantSheet(
                                     if (idx > 0) Spacer(modifier = Modifier.height(8.dp))
                                     when (block.kind) {
                                         "reasoning" -> ReasoningBlock(block.text)
-                                        "tool" -> ToolBlock(block.text)
+                                        "tool" -> ToolBlock(block.text, block.detail)
                                         else -> if (block.text.isNotBlank()) MarkdownText(
                                             text = block.text,
                                             color = MaterialTheme.colorScheme.onSurface,

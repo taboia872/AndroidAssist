@@ -58,6 +58,7 @@ object ChatStore {
                         blocks.put(JSONObject().apply {
                             put("kind", b.kind)
                             put("text", b.text)
+                            if (b.detail.isNotBlank()) put("detail", b.detail)
                         })
                     }
                     if (m.imageBase64 != null) mo.put("image", m.imageBase64)
@@ -78,7 +79,7 @@ object ChatStore {
 
     // ---------------------------------------------------------------- load
 
-    data class Block(val kind: String, val text: String)
+    data class Block(val kind: String, val text: String, val detail: String = "")
     data class StoredMessage(
         val role: String,
         val blocks: List<Block>,
@@ -108,7 +109,8 @@ object ChatStore {
                                 val b = blocksArr.optJSONObject(j) ?: continue
                                 val kind = b.optString("kind").ifBlank { "answer" }
                                 val text = b.optString("text")
-                                if (text.isNotBlank()) add(Block(kind, text))
+                                val detail = b.optString("detail")
+                                if (text.isNotBlank()) add(Block(kind, text, detail))
                             }
                         }
                     } else {
