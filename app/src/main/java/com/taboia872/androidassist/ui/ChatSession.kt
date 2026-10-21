@@ -14,6 +14,7 @@ import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -55,6 +56,15 @@ data class ChatMessage(
  * each event its own block, nothing ever merges across kinds.
  */
 class ChatSession(private val persistenceContext: android.content.Context? = null) {
+
+    /**
+     * OWN app-lifetime scope. Streaming and the end-of-turn save MUST NOT
+     * depend on the caller's screen scope: navigating to Settings (or any
+     * screen) used to cancel the in-flight answer and skip the save —
+     * the "message cut" and "chat not saved" bugs. This scope lives as
+     * long as the process.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     var messages by mutableStateOf(listOf<ChatMessage>())
         private set
@@ -166,7 +176,6 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
     fun send(
         query: String,
-        scope: CoroutineScope,
         imageBase64: String? = null
     ) {
         val q = query.trim()
@@ -338,6 +347,30 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 busy = false
                 status = ""
             }
+        }
+    }
+}
+
+/**
+ * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
+ * gesture). Created once per process — streaming survives screen changes
+ * and backgrounding because the session owns its coroutine scope.
+ */
+object ChatSessions {
+    @Volatile private var initialized = false
+    lateinit var main: ChatSession
+        private set
+    lateinit var overlay: ChatSession
+        private set
+
+    fun init(context: android.content.Context) {
+        if (initialized) return
+        synchronized(this) {
+            if (initialized) return
+            val app = context.applicationContext
+            main = ChatSession(app)
+            overlay = ChatSession(app)
+            initialized = true
         }
     }
 }

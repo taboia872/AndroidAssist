@@ -61,6 +61,8 @@ data class AppConfig(
     val activePersonaId: String = "",
     /** App UI language: "" (system), "en" or "pt" (pt-BR) */
     val appLanguage: String = "",
+    /** Theme: "dynamic" (Material You), "light", "dark"; "" = follow system (static teal) */
+    val appTheme: String = "",
     /** Favorite FishAudio voices: JSON array of {id,title} */
     val fishFavorites: String = "[]",
     /** Saved custom endpoints: JSON array of {id,name,baseUrl} */
@@ -186,6 +188,7 @@ object AppSettings {
     private const val K_SEARCH_FRESHNESS = "search_freshness"
     private const val K_ACTIVE_PERSONA = "active_persona_id"
     private const val K_APP_LANGUAGE = "app_language"
+    private const val K_APP_THEME = "app_theme"
     private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
     private const val K_PERSONAS = "personas_json"
@@ -262,6 +265,7 @@ object AppSettings {
             searchFreshness = p.getString(K_SEARCH_FRESHNESS, "") ?: "",
             activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: "",
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
+            appTheme = p.getString(K_APP_THEME, "") ?: "",
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
             customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
         )
@@ -294,6 +298,7 @@ object AppSettings {
             .putString(K_SEARCH_FRESHNESS, next.searchFreshness)
             .putString(K_ACTIVE_PERSONA, next.activePersonaId)
             .putString(K_APP_LANGUAGE, next.appLanguage)
+            .putString(K_APP_THEME, next.appTheme)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
             .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
             .apply()
@@ -474,13 +479,32 @@ object AppSettings {
      * Switch provider: resets the base URL to the provider default and clears
      * the model pick (catalogs differ per provider). Keys are per-provider,
      * so they are untouched.
+     *
+     * CUSTOM is the exception: its baseUrl is the SAVED endpoint the user
+     * picked — wiping it back to "" broke selecting a custom endpoint right
+     * after creating it (user report). setCustomEndpoint() sets the URL.
      */
     fun setProvider(providerId: String) = update {
         it.copy(
             providerId = providerId,
-            baseUrl = LlmProviders.byId(providerId).defaultBaseUrl,
+            baseUrl = if (providerId == "custom") it.baseUrl
+                .takeIf { b -> b.isNotBlank() }
+                ?: customEndpointList().firstOrNull()?.baseUrl.orEmpty()
+            else LlmProviders.byId(providerId).defaultBaseUrl,
             model = ""
         )
+    }
+
+    /** Select a saved custom endpoint: applies its URL to the live config. */
+    fun selectCustomEndpoint(id: String) {
+        val ep = customEndpointList().firstOrNull { it.id == id } ?: return
+        update {
+            it.copy(
+                providerId = "custom",
+                baseUrl = ep.baseUrl,
+                model = ""
+            )
+        }
     }
 
     /** Save/replace the key of one provider without touching the others. */

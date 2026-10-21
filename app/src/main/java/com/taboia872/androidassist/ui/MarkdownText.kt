@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,7 +48,9 @@ import androidx.compose.ui.unit.dp
 
 private data class MdBlock(
     val code: Boolean,
-    val text: String
+    val text: String,
+    /** table rows: first = header (raw markdown cells) */
+    val tableRows: List<List<String>> = emptyList()
 )
 
 @Composable
@@ -67,7 +70,9 @@ fun MarkdownText(
     Column(modifier = modifier) {
         blocks.forEachIndexed { i, block ->
             if (i > 0) Spacer(modifier = Modifier.height(6.dp))
-            if (block.code) {
+            if (block.tableRows.isNotEmpty()) {
+                TableBlock(block.tableRows, baseStyle, linkColor, codeBackground)
+            } else if (block.code) {
                 CodeBlockSurface(block.text, baseStyle, codeBackground)
             } else {
                 val annotatedString = remember(block.text, color, linkColor) {
@@ -93,6 +98,60 @@ fun MarkdownText(
                                 }
                         }
                     )
+                }
+            }
+        }
+    }
+}
+
+/** GFM table -> real grid: bold header + divider, weight-equal columns. */
+@Composable
+private fun TableBlock(
+    rows: List<List<String>>,
+    baseStyle: TextStyle,
+    linkColor: Color,
+    codeBackground: Color
+) {
+    val header = rows.first()
+    val body = rows.drop(1)
+    val colCount = header.size
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        shape = RoundedCornerShape(10.dp),
+        color = codeBackground.copy(alpha = 0.6f)
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            // header
+            Row {
+                header.forEachIndexed { idx, cell ->
+                    Text(
+                        inlineFormatted(cell.trim(), baseStyle, linkColor, codeBackground),
+                        style = baseStyle.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 2.dp),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            )
+            // body
+            body.forEach { row ->
+                Row {
+                    row.forEachIndexed { idx, cell ->
+                        Text(
+                            inlineFormatted(cell.trim(), baseStyle, linkColor, codeBackground),
+                            style = baseStyle,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
@@ -133,6 +192,19 @@ private fun splitBlocks(text: String): List<MdBlock> {
     }
     while (i < lines.size) {
         val line = lines[i]
+        // GFM table: header + separator + body — consume the WHOLE table
+        if (isTableRow(line) && i + 1 < lines.size && isTableSeparator(lines[i + 1])) {
+            flushProse()
+            val rows = mutableListOf<List<String>>()
+            rows.add(splitRow(line))
+            i += 2
+            while (i < lines.size && isTableRow(lines[i])) {
+                rows.add(splitRow(lines[i]))
+                i++
+            }
+            out.add(MdBlock(false, "", tableRows = rows))
+            continue
+        }
         if (line.trimStart().startsWith("```")) {
             flushProse()
             val fenceIndent = line.indexOf("```")
@@ -182,7 +254,6 @@ private fun parseMarkdown(
     codeBackground: Color
 ): AnnotatedString {
     return buildAnnotatedString {
-        val mono = SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
         val sep = SpanStyle(color = linkColor.copy(alpha = 0.55f))
 
         val lines = text.split("\n")
@@ -192,34 +263,6 @@ private fun parseMarkdown(
             if (!firstBlock) append("\n")
 
             val line = lines[i]
-
-            // ---- GFM table: header + |---| separator + body rows ----
-            if (isTableRow(line) && i + 1 < lines.size && isTableSeparator(lines[i + 1])) {
-                val headerCells = splitRow(line)
-                i += 2
-                val body = mutableListOf<List<String>>()
-                while (i < lines.size && isTableRow(lines[i])) {
-                    body.add(splitRow(lines[i]))
-                    i++
-                }
-                headerCells.forEachIndexed { idx, cell ->
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                        appendInline(cell.trim(), linkColor, codeBackground)
-                    }
-                    if (idx < headerCells.size - 1) append("  |  ")
-                }
-                append("\n")
-                withStyle(sep) { append("─".repeat(24)) }
-                body.forEach { row ->
-                    append("\n")
-                    row.forEachIndexed { idx, cell ->
-                        appendInline(cell.trim(), linkColor, codeBackground)
-                        if (idx < row.size - 1) append("  |  ")
-                    }
-                }
-                firstBlock = false
-                continue
-            }
 
             // ---- thematic break: ---, ***, ___ ----
             if (Regex("^\\s*([-*_])\\s*(\\1\\s*){2,}$").matches(line)) {
@@ -274,6 +317,16 @@ private fun parseMarkdown(
 
 private fun splitRow(line: String): List<String> =
     line.trim().trim('|').split('|')
+
+/** Cell text with inline markdown (bold/code/links) applied. */
+private fun inlineFormatted(
+    text: String,
+    baseStyle: TextStyle,
+    linkColor: Color,
+    codeBackground: Color
+): AnnotatedString = buildAnnotatedString {
+    appendInline(text, linkColor, codeBackground)
+}
 
 private fun AnnotatedString.Builder.appendInline(
     text: String,

@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VolumeUp
@@ -160,6 +161,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showPersonaDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showTtsLangDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var showSearchCountDialog by remember { mutableStateOf(false) }
     var showSearchRegionDialog by remember { mutableStateOf(false) }
     var showSearchFreshnessDialog by remember { mutableStateOf(false) }
@@ -542,6 +544,19 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                     SettingsSection(title = Strings.t(Strings.appLanguage)) {
                         SettingsItem(
+                            icon = Icons.Default.Palette,
+                            title = Strings.t(Strings.appThemeLabel),
+                            subtitle = when (cfg.appTheme) {
+                                "dynamic" -> Strings.t(Strings.themeDynamic)
+                                "light" -> Strings.t(Strings.themeLight)
+                                "dark" -> Strings.t(Strings.themeDark)
+                                else -> Strings.t(Strings.themeSystem)
+                            },
+                            onClick = { showThemeDialog = true }
+                        )
+                    }
+                    SettingsSection(title = Strings.t(Strings.appLanguage)) {
+                        SettingsItem(
                             icon = Icons.Default.Language,
                             title = Strings.t(Strings.appLanguage),
                             subtitle = when (cfg.appLanguage) {
@@ -786,6 +801,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showLanguageDialog = false
             },
             onDismiss = { showLanguageDialog = false }
+        )
+    }
+
+    if (showThemeDialog) {
+        AppThemeDialog(
+            current = cfg.appTheme,
+            onSelected = { t ->
+                AppSettings.update { it.copy(appTheme = t) }
+                showThemeDialog = false
+            },
+            onDismiss = { showThemeDialog = false }
         )
     }
 
@@ -1136,7 +1162,8 @@ private fun ProviderSelectionDialog(
     onProviderSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var endpoints by remember { mutableStateOf(AppSettings.customEndpointList()) }
+    val cfg by AppSettings.config.collectAsState()
+    var endpoints by remember(cfg.customEndpoints) { mutableStateOf(AppSettings.customEndpointList()) }
     var editing by remember { mutableStateOf<AppSettings.CustomEndpoint?>(null) }
     var newName by remember { mutableStateOf("") }
     var newUrl by remember { mutableStateOf("") }
@@ -1191,9 +1218,7 @@ private fun ProviderSelectionDialog(
                         RadioButton(
                             selected = currentProviderId == "custom" && ep.id == activeCustomEndpointId(),
                             onClick = {
-                                AppSettings.update {
-                                    it.copy(providerId = "custom", baseUrl = ep.baseUrl)
-                                }
+                                AppSettings.selectCustomEndpoint(ep.id)
                                 onProviderSelected("custom")
                             }
                         )
@@ -2770,6 +2795,47 @@ private fun TtsLanguageDialog(
                         RadioButton(
                             selected = currentLanguage == code,
                             onClick = { onLanguageSelected(code) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** App theme picker: dynamic (Material You) / light / dark / system. */
+@Composable
+private fun AppThemeDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.appThemeLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                listOf(
+                    "" to Strings.t(Strings.themeSystem),
+                    "dynamic" to Strings.t(Strings.themeDynamic),
+                    "light" to Strings.t(Strings.themeLight),
+                    "dark" to Strings.t(Strings.themeDark)
+                ).forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = current == code,
+                            onClick = { onSelected(code) }
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(name, style = MaterialTheme.typography.bodyLarge)

@@ -109,42 +109,60 @@ fun MessageBubble(msg: ChatMessage, onImageClick: (String) -> Unit = {}) {
         return
     }
 
-    // ASSISTANT: one Surface per message, blocks stacked inside, all selectable
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start
-    ) {
-        SelectionContainer {
-            Surface(
-                modifier = Modifier.widthIn(max = 340.dp),
-                shape = RoundedCornerShape(
-                    topStart = 4.dp, topEnd = 20.dp,
-                    bottomStart = 20.dp, bottomEnd = 20.dp
-                ),
-                tonalElevation = 1.dp,
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    imageBitmap?.let { bmp ->
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = Strings.t(Strings.imageAttached),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 200.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onImageClick(msg.imageBase64 ?: "") }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                    msg.blocks.forEachIndexed { idx, block ->
-                        if (idx > 0) Spacer(modifier = Modifier.height(10.dp))
-                        when (block.kind) {
-                            "reasoning" -> ReasoningBlock(block.text)
-                            "tool" -> ToolBlock(block.text, block.detail)
-                            else -> AnswerBlock(block)
+    // ASSISTANT: the CHAT TIMELINE. Reasoning and tool blocks render as
+    // BARE blocks OUTSIDE any bubble (user request — chronological order,
+    // no bubble around them); answer blocks render inside the bubble.
+    // Image attaches to the first answer bubble.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        var imageShown = false
+        msg.blocks.forEach { block ->
+            when (block.kind) {
+                "reasoning" -> {
+                    ReasoningBlock(block.text, liveStream = block.streaming)
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                "tool" -> {
+                    ToolBlock(block.text, block.detail)
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                else -> {
+                    // Answer bubble (image rides along on the first one)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        SelectionContainer {
+                            Surface(
+                                modifier = Modifier.widthIn(max = 340.dp),
+                                shape = RoundedCornerShape(
+                                    topStart = 4.dp, topEnd = 20.dp,
+                                    bottomStart = 20.dp, bottomEnd = 20.dp
+                                ),
+                                tonalElevation = 1.dp,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    if (!imageShown) {
+                                        imageBitmap?.let { bmp ->
+                                            Image(
+                                                bitmap = bmp.asImageBitmap(),
+                                                contentDescription = Strings.t(Strings.imageAttached),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(max = 200.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .clickable { onImageClick(msg.imageBase64 ?: "") }
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+                                        imageShown = true
+                                    }
+                                    AnswerBlock(block)
+                                }
+                            }
                         }
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
             }
         }
@@ -177,9 +195,12 @@ private fun AnswerBlock(block: ChatBlock) {
  */
 @Composable
 fun ReasoningBlock(text: String, liveStream: Boolean = false) {
-    var expanded by rememberSaveable(text) { mutableStateOf(false) }
+    // State is NOT keyed on text: rekeying on every streamed token kept
+    // resetting expanded=false — the block retraced/retracted and could
+    // not be read while the model was still thinking. User taps win.
+    var expanded by remember { mutableStateOf(false) }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         tonalElevation = 1.dp,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
@@ -187,18 +208,18 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable { expanded = !expanded }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     Icons.Default.Psychology,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     Strings.t(Strings.thoughtProcess) + if (liveStream) " …" else "",
                     style = MaterialTheme.typography.labelMedium,
@@ -219,9 +240,9 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
                     text,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                        .padding(10.dp),
+                        .padding(8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -239,7 +260,7 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
 fun ToolBlock(text: String, detail: String = "") {
     var expanded by rememberSaveable(text + detail) { mutableStateOf(false) }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         tonalElevation = 1.dp,
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
     ) {
@@ -247,9 +268,9 @@ fun ToolBlock(text: String, detail: String = "") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .clickable(enabled = detail.isNotBlank()) { expanded = !expanded }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -280,9 +301,9 @@ fun ToolBlock(text: String, detail: String = "") {
                     detail,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                        .padding(10.dp),
+                        .padding(8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

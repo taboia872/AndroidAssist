@@ -102,6 +102,7 @@ class CompactAssistantActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
+        ChatSessions.init(this)
         TtsManager.init(this, AppSettings.config.value.ttsLanguage)
         enableEdgeToEdge()
 
@@ -136,9 +137,8 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
     // ACTION_ASSIST always starts a FRESH chat — the gesture is a new
     // query by definition. Saved chats live in History (and continue
     // there), so nothing is lost by starting clean.
-    val session = remember {
-        ChatSession(persistenceContext = context.applicationContext)
-    }
+    // App-scoped session (same lifecycle guarantees as the main screen).
+    val session = ChatSessions.overlay
     var expanded by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
 
@@ -174,7 +174,7 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
-                                session.send(text, scope)
+                                session.send(text)
                             } else {
                                 transcript = text
                             }
@@ -191,7 +191,7 @@ fun AssistantOverlay(onDismiss: () -> Unit, requestMic: () -> Unit = {}) {
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
-                                session.send(text, scope)
+                                session.send(text)
                             } else {
                                 transcript = text
                             }
@@ -491,7 +491,7 @@ private fun CompactAssistantSheet(
                         FilledIconButton(
                             onClick = {
                                 if (input.isNotBlank()) {
-                                    session.send(input, scope)
+                                    session.send(input)
                                     input = ""
                                 } else {
                                     onMic()
@@ -619,7 +619,7 @@ private fun FullscreenAssistant(
                     FilledIconButton(
                         onClick = {
                             if (input.isNotBlank()) {
-                                session.send(input, scope)
+                                session.send(input)
                                 input = ""
                             } else {
                                 onMic()

@@ -1,6 +1,7 @@
 package com.taboia872.androidassist.ui.theme
 
 import android.os.Build
+import com.taboia872.androidassist.settings.AppSettings
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -75,15 +76,22 @@ val ExpressiveShapes = Shapes(
 
 @Composable
 fun AndroidAssistTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val themePref = AppSettings.config.value.appTheme
+    val systemDark = isSystemInDarkTheme()
+    // "" = follow system with the static teal identity (no wallpaper tint);
+    // "dynamic" = Material You wallpaper colors, still following light/dark.
+    val darkTheme = when (themePref) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDark
+    }
+    val dynamicColor = themePref == "dynamic" &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
     val colorScheme = when {
-        // dynamicColor defaults OFF here: the teal identity should not be
-        // replaced by the wallpaper tint. Users who want Material You can
-        // flip it when a setting exists.
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        dynamicColor -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }

@@ -86,11 +86,12 @@ fun ChatScreen(
 ) {
     val cfg by AppSettings.config.collectAsState()
     val context = LocalContext.current
-    val session = remember {
-        ChatSession(persistenceContext = context.applicationContext).also { s ->
-            // Fresh chat on open (user request) — same rule as the overlay.
-            // Only an explicit History selection resumes a saved chat.
-            if (resumeChatId != null) s.loadFrom(context.applicationContext, resumeChatId!!)
+    // App-scoped session: streaming and the end-of-turn save survive
+    // navigation (Settings/History) and backgrounding.
+    val session = ChatSessions.main
+    LaunchedEffect(resumeChatId) {
+        if (resumeChatId != null) {
+            session.loadFrom(context.applicationContext, resumeChatId!!)
         }
     }
     var input by remember { mutableStateOf("") }
@@ -164,13 +165,12 @@ fun ChatScreen(
             attachedPdfText != null -> {
                 val q = input.ifBlank { "Summarize this document" }
                 session.send(
-                    "Document content:\n---\n${attachedPdfText}\n---\n\nQuestion: $q",
-                    scope
+                    "Document content:\n---\n${attachedPdfText}\n---\n\nQuestion: $q"
                 )
             }
             attachedImageBase64 != null ->
-                session.send(input, scope, attachedImageBase64)
-            else -> session.send(input, scope)
+                session.send(input, attachedImageBase64)
+            else -> session.send(input)
         }
         input = ""
         clearAttachments()
@@ -207,7 +207,7 @@ fun ChatScreen(
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
-                                session.send(text, scope)
+                                session.send(text)
                             } else {
                                 input = text
                             }
@@ -224,7 +224,7 @@ fun ChatScreen(
                     result.fold(
                         onSuccess = { text ->
                             if (AppSettings.config.value.autoSendVoice) {
-                                session.send(text, scope)
+                                session.send(text)
                             } else {
                                 input = text
                             }

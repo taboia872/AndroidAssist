@@ -236,6 +236,11 @@ object Strings {
     const val nameLabel = "Name"
     const val addEndpoint = "+ Add endpoint"
     const val synthesisLanguage = "Synthesis language"
+    const val appThemeLabel = "Theme"
+    const val themeSystem = "System (teal identity)"
+    const val themeDynamic = "Dynamic (Material You)"
+    const val themeLight = "Light"
+    const val themeDark = "Dark"
 
     /** Lookup with pt-BR overrides. */
     fun t(key: String): String = when (com.taboia872.androidassist.settings.AppSettings.config.value.appLanguage) {
@@ -471,6 +476,11 @@ object Strings {
         nameLabel -> "Nome"
         addEndpoint -> "+ Adicionar endpoint"
         synthesisLanguage -> "Idioma de síntese"
+        appThemeLabel -> "Tema"
+        themeSystem -> "Sistema (identidade teal)"
+        themeDynamic -> "Dinâmico (Material You)"
+        themeLight -> "Claro"
+        themeDark -> "Escuro"
 
         else -> key
     }
