@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.taboia872.androidassist.llm.LlmClient
 import com.taboia872.androidassist.llm.StreamEvent
+import com.taboia872.androidassist.llm.ToolExchange
+import kotlinx.coroutines.Job
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.SearchEngines
@@ -77,6 +79,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
     private var chatId by mutableStateOf(UUID.randomUUID().toString())
 
+    /** The in-flight turn job — stop() cancels it (user STOP button). */
+    private var turnJob: Job? = null
+
     /** Index of the assistant message being built for the CURRENT turn. */
     private var turnMsgIdx = -1
 
@@ -107,6 +112,18 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         busy = false
         turnMsgIdx = -1
         context?.let { ChatStore.setCurrentId(it, chatId) }
+    }
+
+    /**
+     * User pressed STOP: cancel the streaming turn. Blocks streamed so far
+     * stay visible (finalized, not streaming); no partial save.
+     */
+    fun stop() {
+        turnJob?.cancel()
+        turnJob = null
+        finalizeTurn()
+        busy = false
+        status = ""
     }
 
     // ----------------------------------------------- turn timeline core
@@ -183,6 +200,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         if (busy) return
         busy = true
         turnMsgIdx = -1
+        toolExchanges.clear()
         status = Strings.t(Strings.thinking)
         messages = messages + ChatMessage(
             "user",
@@ -190,54 +208,38 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             imageBase64 = imageBase64
         )
 
-        scope.launch {
+        turnJob = scope.launch {
             try {
-            // System prompt augmentation: models have no calendar.
+            // System prompt augmentation: models have no calendar. The
+            // no-think directive rides along when enabled.
             val today = java.text.SimpleDateFormat(
                 "yyyy-MM-dd (EEEE)", java.util.Locale.getDefault()
             ).format(java.util.Date())
-            val basePrompt = AppSettings.config.value.systemPrompt +
+            var basePrompt = AppSettings.config.value.systemPrompt +
                 "\n\nCurrent date: $today."
+            if (AppSettings.config.value.noThink) {
+                basePrompt += "\n\nDo NOT produce any reasoning or thinking " +
+                    "process; answer directly and concisely."
+            }
 
-            // Snapshot BEFORE the turn streams: round 2 replays the same
-            // conversation + the tool result (OpenAI function-calling shape).
+            // Snapshot BEFORE the turn streams: every round replays the same
+            // conversation + ALL completed tool exchanges (multi-search loop).
             val useTools = AppSettings.config.value.webSearchEnabled
             val history = messages.map { Triple(it.role, it.answerText, it.imageBase64) }
 
-            var toolCallId: String? = null
-            var toolQuery = ""
             var searchNotice: String? = null
+            var round = 0
+            // loop guard uses toolExchanges below
 
-            // ---- Round 1 (tools declared): stream the timeline blocks ----
-            LlmClient.chat(
-                history,
-                basePrompt,
-                toolsEnabled = useTools
-            ).collect { event ->
-                when (event) {
-                    is StreamEvent.Reasoning -> {
-                        status = Strings.t(Strings.thinking)
-                        streamAppend("reasoning", event.text)
-                    }
-                    is StreamEvent.Content -> {
-                        status = Strings.t(Strings.typing)
-                        streamAppend("answer", event.text)
-                    }
-                    is StreamEvent.ToolCall -> {
-                        toolCallId = event.id
-                        toolQuery = event.query
-                    }
-                    is StreamEvent.Error -> {
-                        addBlock("answer", "\u26a0\ufe0f ${event.message}")
-                    }
-                }
-            }
+            // ---- Search loop: round 1 with tools; after each tool result,
+            //      replay with tools STILL enabled so the model may refine
+            //      the query and search again (max 3 searches total) ----
+            while (true) {
+                val callId = streamRound(history, basePrompt, useTools && (round == 0 || toolExchanges.size < maxSearches))
+                if (callId == null) break
+                round++
 
-            // ---- Round 2 (tool result): search runs, tool block joins the
-            //      SAME turn timeline, the answer streams after it ----
-            val callId = toolCallId
-            if (callId != null) {
-                val searchQuery = toolQuery.ifBlank { q }
+                val searchQuery = pendingToolQuery
                 status = Strings.t(Strings.searching)
 
                 val outcome = SearchEngines.search(searchQuery)
@@ -245,23 +247,37 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 val toolResult: String
                 when (outcome) {
                     is SearchOutcome.Ok -> {
-                        detailForUser = buildString {
-                            outcome.results.forEachIndexed { i, r ->
-                                if (i > 0) append("\n\n")
-                                append("${r.title}\n")
-                                append("${r.url}\n")
-                                append(r.snippet)
+                        if (outcome.results.isEmpty()) {
+                            detailForUser = Strings.t(Strings.searchNoResults)
+                            toolResult = "The web search returned NO results for " +
+                                "\"$searchQuery\". " +
+                                (if (toolExchanges.size + 1 < maxSearches)
+                                    "Call web_search AGAIN with different, more specific terms."
+                                else "Tell the user you could not find this information.")
+                        } else {
+                            detailForUser = buildString {
+                                outcome.results.forEachIndexed { i, r ->
+                                    if (i > 0) append("\n\n")
+                                    append("${i + 1}. ${r.title}\n")
+                                    append("${r.url}\n")
+                                    append(r.snippet)
+                                }
                             }
-                        }
-                        toolResult = buildString {
-                            append("Web search results for \"$searchQuery\":\n")
-                            outcome.results.forEach { r ->
+                            toolResult = buildString {
+                                append("Web search results for \"$searchQuery\":\n")
+                                outcome.results.forEach { r ->
+                                    append("\n---\n")
+                                    append("Title: ${r.title}\n")
+                                    append("URL: ${r.url}\n")
+                                    append("Snippet: ${r.snippet}")
+                                }
                                 append("\n---\n")
-                                append("Title: ${r.title}\n")
-                                append("URL: ${r.url}\n")
-                                append("Snippet: ${r.snippet}")
+                                if (toolExchanges.size + 1 < maxSearches) {
+                                    append("\nIf these results do NOT answer the " +
+                                        "question, call web_search again with " +
+                                        "different, more specific search terms.")
+                                }
                             }
-                            append("\n---\n")
                         }
                     }
                     is SearchOutcome.Failed -> {
@@ -269,36 +285,26 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
                         detailForUser = outcome.reason
                         toolResult = "The web search FAILED: ${outcome.reason}. " +
-                            "Tell the user the search is not working right now " +
-                            "(quote the reason) — do NOT invent facts."
+                            (if (toolExchanges.size + 1 < maxSearches)
+                                "You may call web_search ONE more time with different terms; " +
+                                "if it fails again, tell the user the search is not working " +
+                                "(quote the reason) — do NOT invent facts."
+                            else "Tell the user the search is not working right now " +
+                                "(quote the reason) — do NOT invent facts.")
                     }
                 }
 
-                // Tool block in the timeline: query on top, results inside
-                addBlock("tool", "\ud83d\udd0d $searchQuery", detailForUser)
+                // Tool block: numbered marker, results inside (tap to read)
+                addBlock("tool", "\ud83d\udd0d ${toolExchanges.size + 1}x  $searchQuery", detailForUser)
 
-                LlmClient.chat(
-                    history,
-                    basePrompt,
-                    toolsEnabled = false,
-                    toolCallId = callId,
-                    toolResult = toolResult
-                ).collect { event ->
-                    when (event) {
-                        is StreamEvent.Reasoning -> {
-                            status = Strings.t(Strings.thinking)
-                            streamAppend("reasoning", event.text)
-                        }
-                        is StreamEvent.Content -> {
-                            status = Strings.t(Strings.typing)
-                            streamAppend("answer", event.text)
-                        }
-                        is StreamEvent.Error -> {
-                            addBlock("answer", "\u26a0\ufe0f ${event.message}")
-                        }
-                        else -> {}
-                    }
-                }
+                // The partial answer the model wrote before calling the tool
+                // (if any) is captured in the exchange for replay.
+                toolExchanges.add(ToolExchange(
+                    callId = callId,
+                    callName = "web_search",
+                    assistantContent = answerBeforeTool(),
+                    result = toolResult
+                ))
             }
 
             // Search failure notice for the USER (last timeline block)
@@ -307,7 +313,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             finalizeTurn()
             status = ""
 
-            // Speak the FINAL answer block only (not pre-search partials).
+            // Speak the FINAL answer block only.
             val lastMsg = messages.lastOrNull { it.role == "assistant" }
             val lastAnswer = lastMsg?.blocks?.lastOrNull { it.kind == "answer" }?.text
             if (!lastAnswer.isNullOrBlank() &&
@@ -342,35 +348,70 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     ChatStore.setCurrentId(c, chatId)
                 }
             }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // STOP pressed: keep what was streamed, release the session.
+                finalizeTurn()
             } finally {
                 // ALWAYS release the session — busy-stuck bug stays fixed.
+                turnJob = null
                 busy = false
                 status = ""
             }
         }
     }
-}
 
-/**
- * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
- * gesture). Created once per process — streaming survives screen changes
- * and backgrounding because the session owns its coroutine scope.
- */
-object ChatSessions {
-    @Volatile private var initialized = false
-    lateinit var main: ChatSession
-        private set
-    lateinit var overlay: ChatSession
-        private set
+    // ------------------------------------------------------------ internals
 
-    fun init(context: android.content.Context) {
-        if (initialized) return
-        synchronized(this) {
-            if (initialized) return
-            val app = context.applicationContext
-            main = ChatSession(app)
-            overlay = ChatSession(app)
-            initialized = true
+    /** Query of the tool call captured by the last streamRound. */
+    private var pendingToolQuery = ""
+
+    /** Completed tool exchanges of the CURRENT turn (multi-search loop). */
+    private val toolExchanges = mutableListOf<ToolExchange>()
+
+    /**
+     * Stream one round into the turn timeline. Returns the tool call id when
+     * the model wants to search (query captured in [pendingToolQuery]),
+     * or null when the round finished without a tool call.
+     */
+    private fun streamRound(
+        history: List<Triple<String, String, String?>>,
+        basePrompt: String,
+        toolsEnabled: Boolean
+    ): String? {
+        var callId: String? = null
+        pendingToolQuery = ""
+        LlmClient.chat(
+            history,
+            basePrompt,
+            toolsEnabled = toolsEnabled,
+            toolExchanges = this.toolExchanges
+        ).collect { event ->
+            when (event) {
+                is StreamEvent.Reasoning -> {
+                    status = Strings.t(Strings.thinking)
+                    streamAppend("reasoning", event.text)
+                }
+                is StreamEvent.Content -> {
+                    status = Strings.t(Strings.typing)
+                    streamAppend("answer", event.text)
+                }
+                is StreamEvent.ToolCall -> {
+                    callId = event.id
+                    pendingToolQuery = event.query
+                }
+                is StreamEvent.Error -> {
+                    addBlock("answer", "\u26a0\ufe0f ${event.message}")
+                }
+            }
         }
+        return callId
+    }
+
+    /** Answer text streamed so far in the CURRENT turn (for tool replay). */
+    private fun answerBeforeTool(): String {
+        if (turnMsgIdx !in messages.indices) return ""
+        return messages[turnMsgIdx].blocks
+            .filter { it.kind == "answer" }
+            .joinToString("\n\n") { it.text }
     }
 }

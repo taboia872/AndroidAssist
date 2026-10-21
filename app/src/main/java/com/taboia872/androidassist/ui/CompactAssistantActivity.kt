@@ -490,22 +490,32 @@ private fun CompactAssistantSheet(
                         // send as soon as there is text to send.
                         FilledIconButton(
                             onClick = {
-                                if (input.isNotBlank()) {
-                                    session.send(input)
-                                    input = ""
-                                } else {
-                                    onMic()
+                                when {
+                                    session.busy -> session.stop()
+                                    input.isNotBlank() -> {
+                                        session.send(input)
+                                        input = ""
+                                    }
+                                    else -> onMic()
                                 }
-                            },
-                            enabled = !session.busy || input.isNotBlank(),
+                                },
+                                enabled = true,
                             modifier = Modifier.size(48.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
-                                else if (listening) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.primary
+                                containerColor = when {
+                                    session.busy -> MaterialTheme.colorScheme.error
+                                    input.isNotBlank() -> MaterialTheme.colorScheme.primary
+                                    listening -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
                             )
                         ) {
                             when {
+                                session.busy -> Icon(
+                                    Icons.Default.Stop, Strings.t(Strings.stop),
+                                    tint = MaterialTheme.colorScheme.onError,
+                                    modifier = Modifier.size(22.dp)
+                                )
                                 input.isNotBlank() -> Icon(
                                     Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                     tint = MaterialTheme.colorScheme.onPrimary
@@ -618,22 +628,31 @@ private fun FullscreenAssistant(
                     // send as soon as there is text to send.
                     FilledIconButton(
                         onClick = {
-                            if (input.isNotBlank()) {
-                                session.send(input)
-                                input = ""
-                            } else {
-                                onMic()
+                            when {
+                                session.busy -> session.stop()
+                                input.isNotBlank() -> {
+                                    session.send(input)
+                                    input = ""
+                                }
+                                else -> onMic()
                             }
                         },
-                        enabled = !session.busy || input.isNotBlank(),
+                        enabled = true,
                         modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
-                            else if (listening) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary
+                            containerColor = when {
+                                session.busy -> MaterialTheme.colorScheme.error
+                                input.isNotBlank() -> MaterialTheme.colorScheme.primary
+                                listening -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                         )
                     ) {
                         when {
+                            session.busy -> Icon(
+                                Icons.Default.Stop, Strings.t(Strings.stop),
+                                tint = MaterialTheme.colorScheme.onError
+                            )
                             input.isNotBlank() -> Icon(
                                 Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                 tint = MaterialTheme.colorScheme.onPrimary

@@ -47,4 +47,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.security.crypto)
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation(libs.markdown.renderer)
+    implementation(libs.markdown.renderer.m3)
+    implementation(libs.markdown.renderer.code)
 }

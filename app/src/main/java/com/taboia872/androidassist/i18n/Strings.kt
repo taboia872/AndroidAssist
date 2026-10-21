@@ -241,6 +241,12 @@ object Strings {
     const val themeDynamic = "Dynamic (Material You)"
     const val themeLight = "Light"
     const val themeDark = "Dark"
+    const val searchNoResults = "No results returned"
+    const val stop = "Stop"
+    const val accentColorLabel = "Accent color"
+    const val accentDefault = "Default (teal)"
+    const val noThinkLabel = "No-think mode"
+    const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
     /** Lookup with pt-BR overrides. */
     fun t(key: String): String = when (com.taboia872.androidassist.settings.AppSettings.config.value.appLanguage) {
@@ -481,6 +487,12 @@ object Strings {
         themeDynamic -> "Dinâmico (Material You)"
         themeLight -> "Claro"
         themeDark -> "Escuro"
+        searchNoResults -> "Nenhum resultado retornado"
+        stop -> "Parar"
+        accentColorLabel -> "Cor de destaque"
+        accentDefault -> "Padrão (teal)"
+        noThinkLabel -> "Modo sem pensamento"
+        noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
 
         else -> key
     }

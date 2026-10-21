@@ -197,8 +197,12 @@ private fun AnswerBlock(block: ChatBlock) {
 fun ReasoningBlock(text: String, liveStream: Boolean = false) {
     // State is NOT keyed on text: rekeying on every streamed token kept
     // resetting expanded=false — the block retraced/retracted and could
-    // not be read while the model was still thinking. User taps win.
+    // not be read while the model was still thinking. User taps win —
+    // including COLLAPSING a live-streaming block.
     var expanded by remember { mutableStateOf(false) }
+    var userCollapsed by remember { mutableStateOf(false) }
+    // While LIVE: the block auto-opens unless the user collapsed it. The
+    // tap handler below keeps userCollapsed in sync.
     Surface(
         shape = RoundedCornerShape(14.dp),
         tonalElevation = 1.dp,
@@ -209,7 +213,10 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .clickable { expanded = !expanded }
+                    .clickable {
+                        userCollapsed = if (liveStream) !userCollapsed else false
+                        expanded = !expanded
+                    }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -235,7 +242,7 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            AnimatedVisibility(visible = expanded || liveStream) {
+            AnimatedVisibility(visible = expanded || (liveStream && !userCollapsed)) {
                 Text(
                     text,
                     modifier = Modifier

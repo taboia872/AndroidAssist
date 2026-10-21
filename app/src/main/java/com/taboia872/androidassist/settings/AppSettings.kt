@@ -63,6 +63,14 @@ data class AppConfig(
     val appLanguage: String = "",
     /** Theme: "dynamic" (Material You), "light", "dark"; "" = follow system (static teal) */
     val appTheme: String = "",
+    /**
+     * No-think mode: suppress reasoning for faster answers. Sends
+     * chat_template_kwargs {enable_thinking:false} (llama-server) plus a
+     * directive in the system prompt. For small/local models.
+     */
+    val noThink: Boolean = false,
+    /** Accent color id: "" (default teal), teal|blue|purple|pink|red|orange|green */
+    val accentColor: String = "",
     /** Favorite FishAudio voices: JSON array of {id,title} */
     val fishFavorites: String = "[]",
     /** Saved custom endpoints: JSON array of {id,name,baseUrl} */
@@ -189,6 +197,8 @@ object AppSettings {
     private const val K_ACTIVE_PERSONA = "active_persona_id"
     private const val K_APP_LANGUAGE = "app_language"
     private const val K_APP_THEME = "app_theme"
+    private const val K_NO_THINK = "no_think"
+    private const val K_ACCENT_COLOR = "accent_color"
     private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
     private const val K_PERSONAS = "personas_json"
@@ -266,6 +276,8 @@ object AppSettings {
             activePersonaId = p.getString(K_ACTIVE_PERSONA, "") ?: "",
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
             appTheme = p.getString(K_APP_THEME, "") ?: "",
+            noThink = p.getBoolean(K_NO_THINK, false),
+            accentColor = p.getString(K_ACCENT_COLOR, "") ?: "",
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
             customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
         )
@@ -299,6 +311,8 @@ object AppSettings {
             .putString(K_ACTIVE_PERSONA, next.activePersonaId)
             .putString(K_APP_LANGUAGE, next.appLanguage)
             .putString(K_APP_THEME, next.appTheme)
+            .putBoolean(K_NO_THINK, next.noThink)
+            .putString(K_ACCENT_COLOR, next.accentColor)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
             .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
             .apply()

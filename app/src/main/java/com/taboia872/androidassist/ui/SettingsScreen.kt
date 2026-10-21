@@ -35,6 +35,8 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
@@ -108,7 +110,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.taboia872.androidassist.BuildConfig
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.llm.ModelInfo
@@ -162,6 +163,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showTtsLangDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showAccentDialog by remember { mutableStateOf(false) }
     var showSearchCountDialog by remember { mutableStateOf(false) }
     var showSearchRegionDialog by remember { mutableStateOf(false) }
     var showSearchFreshnessDialog by remember { mutableStateOf(false) }
@@ -256,6 +258,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = cfg.systemPrompt.take(50) +
                                 if (cfg.systemPrompt.length > 50) "..." else "",
                             onClick = { showPromptDialog = true }
+                        )
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Bolt,
+                            title = Strings.t(Strings.noThinkLabel),
+                            subtitle = Strings.t(Strings.noThinkSub),
+                            checked = cfg.noThink,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(noThink = on) }
+                            }
                         )
                     }
 
@@ -554,6 +565,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                             },
                             onClick = { showThemeDialog = true }
                         )
+                        SettingsItem(
+                            icon = Icons.Default.Circle,
+                            title = Strings.t(Strings.accentColorLabel),
+                            subtitle = accentName(cfg.accentColor),
+                            onClick = { showAccentDialog = true }
+                        )
                     }
                     SettingsSection(title = Strings.t(Strings.appLanguage)) {
                         SettingsItem(
@@ -596,15 +613,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                         }
                     }
-                    SettingsSection(title = Strings.t(Strings.about)) {
-                        SettingsItem(
-                            icon = Icons.Default.Info,
-                            title = "AndroidAssist",
-                            subtitle = "v${BuildConfig.VERSION_NAME}",
-                            onClick = {},
-                            trailingArrow = false
-                        )
-                    }
+
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -801,6 +810,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showLanguageDialog = false
             },
             onDismiss = { showLanguageDialog = false }
+        )
+    }
+
+    if (showAccentDialog) {
+        AccentColorDialog(
+            current = cfg.accentColor,
+            onSelected = { id ->
+                AppSettings.update { it.copy(accentColor = id) }
+                showAccentDialog = false
+            },
+            onDismiss = { showAccentDialog = false }
         )
     }
 
@@ -2841,6 +2861,76 @@ private fun AppThemeDialog(
                         Text(name, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** Human name of an accent id. */
+private fun accentName(id: String): String = when (id) {
+    "teal" -> "Teal"
+    "blue" -> "Blue"
+    "purple" -> "Purple"
+    "pink" -> "Pink"
+    "red" -> "Red"
+    "orange" -> "Orange"
+    "green" -> "Green"
+    else -> Strings.t(Strings.accentDefault)
+}
+
+/** Accent color picker: swatches for each preset. */
+@Composable
+private fun AccentColorDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.accentColorLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                // default = teal identity of the app
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelected("") }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = current.isEmpty(), onClick = { onSelected("") })
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(Strings.t(Strings.accentDefault), style = MaterialTheme.typography.bodyLarge)
+                }
+                // presets
+                com.taboia872.androidassist.ui.theme.ACCENT_PRESETS
+                    .filter { it.first.isNotEmpty() }
+                    .forEach { (id, color) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelected(id) }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = current == id,
+                                onClick = { onSelected(id) }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(color ?: MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(accentName(id), style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
             }
         },
         confirmButton = {

@@ -377,24 +377,29 @@ fun ChatScreen(
                     // send as soon as there is text or an attachment to send.
                     FilledIconButton(
                         onClick = {
-                            if (input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null) {
-                                sendCurrent()
-                            } else if (listening) {
-                                listening = false
-                            } else {
-                                startVoice()
+                            when {
+                                session.busy -> session.stop()
+                                input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null -> sendCurrent()
+                                listening -> listening = false
+                                else -> startVoice()
                             }
                         },
-                        enabled = !session.busy || input.isNotBlank() ||
-                            attachedImageBase64 != null || attachedPdfText != null,
+                        enabled = true,
                         modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (input.isNotBlank()) MaterialTheme.colorScheme.primary
-                            else if (listening) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary
+                            containerColor = when {
+                                session.busy -> MaterialTheme.colorScheme.error
+                                input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null -> MaterialTheme.colorScheme.primary
+                                listening -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                         )
                     ) {
                         when {
+                            session.busy -> Icon(
+                                Icons.Default.Stop, Strings.t(Strings.stop),
+                                tint = MaterialTheme.colorScheme.onError
+                            )
                             input.isNotBlank() || attachedImageBase64 != null || attachedPdfText != null -> Icon(
                                 Icons.AutoMirrored.Filled.Send, Strings.t(Strings.send),
                                 tint = MaterialTheme.colorScheme.onPrimary

@@ -11,6 +11,18 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
+/**
+ * One completed tool exchange to replay in the next request: the assistant's
+ * tool_call (with any partial answer it produced before calling) and the
+ * tool result. Multiple exchanges = the model searched more than once.
+ */
+data class ToolExchange(
+    val callId: String,
+    val callName: String,
+    val assistantContent: String,
+    val result: String
+)
+
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
     data class Reasoning(val text: String) : StreamEvent()
@@ -37,7 +49,10 @@ object LlmClient {
             put("name", "web_search")
             put("description",
                 "Search the web for current information (news, prices, weather, " +
-                "recent events). Use when the question needs up-to-date facts.")
+                    "recent events). Use when the question needs up-to-date facts. " +
+                    "If the results do not answer the question, CALL web_search " +
+                    "AGAIN with different, more specific search terms (you may " +
+                    "search up to 3 times).")
             put("parameters", JSONObject().apply {
                 put("type", "object")
                 put("properties", JSONObject().apply {
@@ -55,15 +70,15 @@ object LlmClient {
      * Streaming chat completion with FUNCTION CALLING when the server
      * supports it: the web_search tool is declared up front; if the model
      * wants fresh facts it emits a tool_call delta instead of guessing.
-     * [toolsEnabled] gates the declaration; [toolResult] injects a
-     * role:"tool" message (search results) for the follow-up turn.
+     * [toolsEnabled] gates the declaration; [toolExchanges] replays every
+     * completed tool exchange (assistant tool_call + result) so the model
+     * can search MULTIPLE times per turn.
      */
     fun chat(
         messages: List<Triple<String, String, String?>>,
         systemPrompt: String,
         toolsEnabled: Boolean = false,
-        toolCallId: String? = null,
-        toolResult: String? = null
+        toolExchanges: List<ToolExchange> = emptyList()
     ): Flow<StreamEvent> = flow {
         val cfg = AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
@@ -82,6 +97,12 @@ object LlmClient {
         val body = JSONObject().apply {
             put("model", cfg.model)
             put("stream", true)
+            // No-think mode (local thinking models): llama-server and
+            // compatible servers accept chat_template_kwargs; others ignore
+            // the extra field harmlessly.
+            if (AppSettings.config.value.noThink) {
+                put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
+            }
             if (toolsEnabled) {
                 put("tools", JSONArray().put(webSearchTool()))
                 put("tool_choice", "auto")
@@ -90,23 +111,27 @@ object LlmClient {
                 if (systemPrompt.isNotBlank()) {
                     put(JSONObject().put("role", "system").put("content", systemPrompt))
                 }
-                if (toolCallId != null && toolResult != null) {
-                    // Follow-up turn: the assistant's tool_call + the result
+                toolExchanges.forEach { ex ->
+                    // The assistant message that made the call (+ any partial
+                    // answer it wrote before calling), then the tool result.
                     put(JSONObject().apply {
                         put("role", "assistant")
+                        if (ex.assistantContent.isNotBlank()) {
+                            put("content", ex.assistantContent)
+                        }
                         put("tool_calls", JSONArray().put(JSONObject().apply {
-                            put("id", toolCallId)
+                            put("id", ex.callId)
                             put("type", "function")
                             put("function", JSONObject().apply {
-                                put("name", "web_search")
+                                put("name", ex.callName)
                                 put("arguments", "{}")
                             })
                         }))
                     })
                     put(JSONObject().apply {
                         put("role", "tool")
-                        put("tool_call_id", toolCallId)
-                        put("content", toolResult)
+                        put("tool_call_id", ex.callId)
+                        put("content", ex.result)
                     })
                 }
                 for ((role, content, image) in messages) {
