@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOn
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.net.HttpURLConnection
 import java.io.InputStreamReader
 
 /**
@@ -41,6 +42,22 @@ sealed class StreamEvent {
  * OpenAI vision multipart content shape; plain text stays a simple string.
  */
 object LlmClient {
+
+    /**
+     * The connection of the stream being read RIGHT NOW. stop() disconnects
+     * it so a blocked read() aborts immediately — without this the local
+     * server keeps generating after the user pressed STOP (llama.cpp report).
+     */
+    @Volatile private var activeConn: HttpURLConnection? = null
+
+    /** Kill the in-flight stream (called by ChatSession.stop()). */
+    fun abortActive() {
+        try {
+            activeConn?.disconnect()
+        } catch (e: Exception) {
+        }
+        activeConn = null
+    }
 
     /** OpenAI tools declaration for web_search (function calling). */
     private fun webSearchTool(): JSONObject = JSONObject().apply {
@@ -175,6 +192,7 @@ object LlmClient {
         val pendingToolNames = mutableMapOf<Int, String>()
         val pendingToolArgs = mutableMapOf<Int, String>()
 
+        activeConn = conn
         try {
             conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
@@ -242,6 +260,7 @@ object LlmClient {
         } catch (e: Exception) {
             emit(StreamEvent.Error(e.message ?: e.javaClass.simpleName))
         } finally {
+            activeConn = null
             conn.disconnect()
         }
     }.flowOn(Dispatchers.IO)

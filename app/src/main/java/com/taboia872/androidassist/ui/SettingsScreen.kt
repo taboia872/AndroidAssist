@@ -246,13 +246,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             subtitle = modelLabel,
                             onClick = { showModelDialog = true }
                         )
-                        SettingsItem(
-                            icon = Icons.Default.Refresh,
-                            title = Strings.t(Strings.refreshCatalog),
-                            subtitle = "Fetch the live list from ${provider.displayName}",
-                            onClick = { showModelDialog = true }
-                        )
-                        SettingsItem(
+                                                SettingsItem(
                             icon = Icons.Default.Edit,
                             title = Strings.t(Strings.systemPrompt),
                             subtitle = cfg.systemPrompt.take(50) +
@@ -553,7 +547,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     }
 
-                    SettingsSection(title = Strings.t(Strings.appLanguage)) {
+                    SettingsSection(title = Strings.t(Strings.themeSection)) {
                         SettingsItem(
                             icon = Icons.Default.Palette,
                             title = Strings.t(Strings.appThemeLabel),

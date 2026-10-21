@@ -82,8 +82,6 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     /** The in-flight turn job — stop() cancels it (user STOP button). */
     private var turnJob: Job? = null
 
-    /** Max web searches per turn (retry loop cap). */
-    private val maxSearches = 3
 
     /** Index of the assistant message being built for the CURRENT turn. */
     private var turnMsgIdx = -1
@@ -122,6 +120,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * stay visible (finalized, not streaming); no partial save.
      */
     fun stop() {
+        // Abort the HTTP stream FIRST: job.cancel alone leaves the local
+        // server generating (llama.cpp report) — disconnect makes the
+        // blocked read() throw and the server sees the client gone.
+        LlmClient.abortActive()
         turnJob?.cancel()
         turnJob = null
         finalizeTurn()
@@ -230,19 +232,13 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             val useTools = AppSettings.config.value.webSearchEnabled
             val history = messages.map { Triple(it.role, it.answerText, it.imageBase64) }
 
+
             var searchNotice: String? = null
-            var round = 0
-            // loop guard uses toolExchanges below
-
-            // ---- Search loop: round 1 with tools; after each tool result,
-            //      replay with tools STILL enabled so the model may refine
-            //      the query and search again (max 3 searches total) ----
-            while (true) {
-                val callId = streamRound(history, basePrompt, useTools && (round == 0 || toolExchanges.size < maxSearches))
-                if (callId == null) break
-                round++
-
-                val searchQuery = pendingToolQuery
+            // ---- Single search round: tools declared; if the model calls,
+            //      run the search and replay with the result attached. ----
+            val callId = streamRound(history, basePrompt, useTools)
+            if (callId != null) {
+                val searchQuery = pendingToolQuery.ifBlank { q }
                 status = Strings.t(Strings.searching)
 
                 val outcome = SearchEngines.search(searchQuery)
@@ -250,37 +246,23 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 val toolResult: String
                 when (outcome) {
                     is SearchOutcome.Ok -> {
-                        if (outcome.results.isEmpty()) {
-                            detailForUser = Strings.t(Strings.searchNoResults)
-                            toolResult = "The web search returned NO results for " +
-                                "\"$searchQuery\". " +
-                                (if (toolExchanges.size + 1 < maxSearches)
-                                    "Call web_search AGAIN with different, more specific terms."
-                                else "Tell the user you could not find this information.")
-                        } else {
-                            detailForUser = buildString {
-                                outcome.results.forEachIndexed { i, r ->
-                                    if (i > 0) append("\n\n")
-                                    append("${i + 1}. ${r.title}\n")
-                                    append("${r.url}\n")
-                                    append(r.snippet)
-                                }
+                        detailForUser = buildString {
+                            outcome.results.forEachIndexed { i, r ->
+                                if (i > 0) append("\n\n")
+                                append("${i + 1}. ${r.title}\n")
+                                append("${r.url}\n")
+                                append(r.snippet)
                             }
-                            toolResult = buildString {
-                                append("Web search results for \"$searchQuery\":\n")
-                                outcome.results.forEach { r ->
-                                    append("\n---\n")
-                                    append("Title: ${r.title}\n")
-                                    append("URL: ${r.url}\n")
-                                    append("Snippet: ${r.snippet}")
-                                }
+                        }
+                        toolResult = buildString {
+                            append("Web search results for \"$searchQuery\":\n")
+                            outcome.results.forEach { r ->
                                 append("\n---\n")
-                                if (toolExchanges.size + 1 < maxSearches) {
-                                    append("\nIf these results do NOT answer the " +
-                                        "question, call web_search again with " +
-                                        "different, more specific search terms.")
-                                }
+                                append("Title: ${r.title}\n")
+                                append("URL: ${r.url}\n")
+                                append("Snippet: ${r.snippet}")
                             }
+                            append("\n---\n")
                         }
                     }
                     is SearchOutcome.Failed -> {
@@ -288,26 +270,23 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
                         detailForUser = outcome.reason
                         toolResult = "The web search FAILED: ${outcome.reason}. " +
-                            (if (toolExchanges.size + 1 < maxSearches)
-                                "You may call web_search ONE more time with different terms; " +
-                                "if it fails again, tell the user the search is not working " +
-                                "(quote the reason) — do NOT invent facts."
-                            else "Tell the user the search is not working right now " +
-                                "(quote the reason) — do NOT invent facts.")
+                            "Tell the user the search is not working right now " +
+                            "(quote the reason) — do NOT invent facts."
                     }
                 }
 
                 // Tool block: numbered marker, results inside (tap to read)
-                addBlock("tool", "\ud83d\udd0d ${toolExchanges.size + 1}x  $searchQuery", detailForUser)
+                addBlock("tool", "\ud83d\udd0d $searchQuery", detailForUser)
 
-                // The partial answer the model wrote before calling the tool
-                // (if any) is captured in the exchange for replay.
                 toolExchanges.add(ToolExchange(
                     callId = callId,
                     callName = "web_search",
                     assistantContent = answerBeforeTool(),
                     result = toolResult
                 ))
+
+                // Final round with the tool result attached
+                streamRound(history, basePrompt, toolsEnabled = false)
             }
 
             // Search failure notice for the USER (last timeline block)

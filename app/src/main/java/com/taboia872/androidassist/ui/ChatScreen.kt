@@ -98,6 +98,11 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // Auto-scroll only until the user scrolls manually: streaming keeps
+    // yanking the view back to the bottom (user report). One nudge per new
+    // message, then hands off.
+    var autoScroll by remember { mutableStateOf(true) }
+
     // ---- attachments ----
     var attachedImage by remember { mutableStateOf<Bitmap?>(null) }
     var attachedImageBase64 by remember { mutableStateOf<String?>(null) }
@@ -452,11 +457,14 @@ fun ChatScreen(
                 }
             }
 
-            LaunchedEffect(
-                session.messages.size,
-                session.messages.lastOrNull()?.blocks?.lastOrNull()?.text
-            ) {
+            // user drag cancels auto-follow
+            LaunchedEffect(listState.isScrollInProgress) {
+                if (listState.isScrollInProgress) autoScroll = false
+            }
+            // new message re-enables follow ONCE (next user drag cancels again)
+            LaunchedEffect(session.messages.size) {
                 if (session.messages.isNotEmpty()) {
+                    autoScroll = true
                     listState.animateScrollToItem(session.messages.lastIndex)
                 }
             }

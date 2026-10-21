@@ -52,6 +52,10 @@ import androidx.compose.ui.window.Dialog
 @Composable
 fun MessageBubble(msg: ChatMessage, onImageClick: (String) -> Unit = {}) {
     val isUser = msg.role == "user"
+    // Landscape/tablet: bubbles expand to 80% of the screen width instead
+    // of the fixed 320/340dp portrait size (user report).
+    val screenW = LocalConfiguration.current.screenWidthDp.dp
+    val bubbleMax = maxOf(screenW * 0.8f, 320.dp)
 
     // Decode attached image for display (if any)
     val imageBitmap = remember(msg.imageBase64) {
@@ -73,7 +77,7 @@ fun MessageBubble(msg: ChatMessage, onImageClick: (String) -> Unit = {}) {
         ) {
             SelectionContainer {
                 Surface(
-                    modifier = Modifier.widthIn(max = 320.dp),
+                    modifier = Modifier.widthIn(max = bubbleMax),
                     shape = RoundedCornerShape(
                         topStart = 20.dp, topEnd = 4.dp,
                         bottomStart = 20.dp, bottomEnd = 20.dp
@@ -133,7 +137,7 @@ fun MessageBubble(msg: ChatMessage, onImageClick: (String) -> Unit = {}) {
                     ) {
                         SelectionContainer {
                             Surface(
-                                modifier = Modifier.widthIn(max = 340.dp),
+                                modifier = Modifier.widthIn(max = bubbleMax),
                                 shape = RoundedCornerShape(
                                     topStart = 4.dp, topEnd = 20.dp,
                                     bottomStart = 20.dp, bottomEnd = 20.dp
@@ -169,15 +173,25 @@ fun MessageBubble(msg: ChatMessage, onImageClick: (String) -> Unit = {}) {
     }
 }
 
-/** Answer block: markdown, standardized bodyLarge font. */
+/** Answer block: markdown, standardized bodyLarge font. Streaming blocks use
+ *  the synchronous renderer (the library re-parses async per token and
+ *  flickers); finished blocks use the full library renderer. */
 @Composable
 private fun AnswerBlock(block: ChatBlock) {
     Column {
-        MarkdownText(
-            text = block.text,
-            color = MaterialTheme.colorScheme.onSurface,
-            linkColor = MaterialTheme.colorScheme.primary
-        )
+        if (block.streaming) {
+            MarkdownTextStreaming(
+                text = block.text,
+                color = MaterialTheme.colorScheme.onSurface,
+                linkColor = MaterialTheme.colorScheme.primary
+            )
+        } else {
+            MarkdownText(
+                text = block.text,
+                color = MaterialTheme.colorScheme.onSurface,
+                linkColor = MaterialTheme.colorScheme.primary
+            )
+        }
         if (block.streaming) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -214,8 +228,12 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .clickable {
-                        userCollapsed = if (liveStream) !userCollapsed else false
-                        expanded = !expanded
+                        if (liveStream) {
+                            userCollapsed = !userCollapsed
+                            expanded = false
+                        } else {
+                            expanded = !expanded
+                        }
                     }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -234,10 +252,11 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
                     modifier = Modifier.weight(1f),
                     maxLines = 1
                 )
+                val openNow = if (liveStream) !userCollapsed else expanded
                 Icon(
-                    if (expanded) Icons.Default.KeyboardArrowUp
+                    if (openNow) Icons.Default.KeyboardArrowUp
                     else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) Strings.t(Strings.collapse)
+                    contentDescription = if (openNow) Strings.t(Strings.collapse)
                     else Strings.t(Strings.expand),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )

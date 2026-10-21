@@ -2,6 +2,7 @@ package com.taboia872.androidassist
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
@@ -27,6 +28,9 @@ class MainActivity : ComponentActivity() {
             var screen by remember { mutableStateOf("chat") }
             var resumeChatId by remember { mutableStateOf<String?>(null) }
             AndroidAssistTheme {
+                // Android back returns to the CHAT instead of exiting the app
+                // (user report): only exit from the chat screen itself.
+                BackHandler(enabled = screen != "chat") { screen = "chat" }
                 when (screen) {
                     "settings" -> SettingsScreen(onBack = { screen = "chat" })
                     "history" -> ChatHistoryScreen(

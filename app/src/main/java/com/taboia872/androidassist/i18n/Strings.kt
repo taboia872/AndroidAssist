@@ -245,6 +245,9 @@ object Strings {
     const val stop = "Stop"
     const val accentColorLabel = "Accent color"
     const val accentDefault = "Default (teal)"
+    const val themeSection = "Theme"
+    const val copyCode = "Copy code"
+    const val copied = "Copied"
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
@@ -491,6 +494,9 @@ object Strings {
         stop -> "Parar"
         accentColorLabel -> "Cor de destaque"
         accentDefault -> "Padrão (teal)"
+        themeSection -> "Tema"
+        copyCode -> "Copiar código"
+        copied -> "Copiado"
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
 
