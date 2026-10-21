@@ -82,6 +82,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     /** The in-flight turn job — stop() cancels it (user STOP button). */
     private var turnJob: Job? = null
 
+    /** Max web searches per turn (retry loop cap). */
+    private val maxSearches = 3
+
     /** Index of the assistant message being built for the CURRENT turn. */
     private var turnMsgIdx = -1
 
@@ -373,7 +376,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * the model wants to search (query captured in [pendingToolQuery]),
      * or null when the round finished without a tool call.
      */
-    private fun streamRound(
+    private suspend fun streamRound(
         history: List<Triple<String, String, String?>>,
         basePrompt: String,
         toolsEnabled: Boolean
@@ -413,5 +416,29 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return messages[turnMsgIdx].blocks
             .filter { it.kind == "answer" }
             .joinToString("\n\n") { it.text }
+    }
+}
+
+/**
+ * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
+ * gesture). Created once per process — streaming survives screen changes
+ * and backgrounding because the session owns its coroutine scope.
+ */
+object ChatSessions {
+    @Volatile private var initialized = false
+    lateinit var main: ChatSession
+        private set
+    lateinit var overlay: ChatSession
+        private set
+
+    fun init(context: android.content.Context) {
+        if (initialized) return
+        synchronized(this) {
+            if (initialized) return
+            val app = context.applicationContext
+            main = ChatSession(app)
+            overlay = ChatSession(app)
+            initialized = true
+        }
     }
 }
