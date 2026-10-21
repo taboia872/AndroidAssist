@@ -31,7 +31,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.Toast
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -47,6 +47,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import com.mikepenz.markdown.compose.LocalMarkdownTypography
+import com.mikepenz.markdown.compose.components.MarkdownComponentModel
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
+import com.taboia872.androidassist.i18n.Strings
+import org.intellij.markdown.ast.ASTNode
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -74,7 +81,7 @@ fun MarkdownText(
     Markdown(
         content = text,
         components = markdownComponents(
-            codeFence = { state ->
+            codeFence = { state: MarkdownComponentModel ->
                 CopyableCodeFence(state.content, state.node)
             }
         ),
@@ -135,7 +142,7 @@ private fun CopyableCodeFence(content: String, node: ASTNode) {
                 Toast.makeText(context, Strings.t(Strings.copied), Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier
-                .align(androidx.compose.ui.Alignment.TopEnd)
+                .align(Alignment.TopEnd)
                 .size(28.dp)
         ) {
             Icon(
@@ -282,6 +289,13 @@ private fun CodeBlockSurface(code: String, baseStyle: TextStyle, codeBackground:
 }
 
 /** Split into code blocks and prose blocks (fences ``` consumed whole). */
+private data class MdBlock(
+    val code: Boolean,
+    val text: String,
+    /** table rows: first = header (raw markdown cells) */
+    val tableRows: List<List<String>> = emptyList()
+)
+
 private fun splitBlocks(text: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
     val lines = text.split("\n")
