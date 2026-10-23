@@ -88,6 +88,16 @@ import java.util.Locale
  */
 class CompactAssistantActivity : ComponentActivity() {
 
+    override fun onResume() {
+        super.onResume()
+        ChatSessions.appInForeground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ChatSessions.appInForeground = false
+    }
+
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->

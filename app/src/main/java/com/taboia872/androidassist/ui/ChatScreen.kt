@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
@@ -84,6 +85,9 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit
 ) {
+    // Browser-style: the top bar hides when the chat scrolls DOWN and comes
+    // back when you scroll up (enterAlways).
+    val topBarBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val cfg by AppSettings.config.collectAsState()
     val context = LocalContext.current
     // App-scoped session: streaming and the end-of-turn save survive
@@ -242,8 +246,10 @@ fun ChatScreen(
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(topBarBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                scrollBehavior = topBarBehavior,
                 title = {
                     Column {
                         Text(
@@ -346,7 +352,7 @@ fun ChatScreen(
                     Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp)
+                        .padding(start = 12.dp, end = 12.dp, top = 5.dp, bottom = 5.dp)
                         .imePadding()
                         .navigationBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically,

@@ -8,6 +8,20 @@ android {
     namespace = "com.taboia872.androidassist"
     compileSdk = 36
 
+    // Release signing from env (CI secrets). Same key signs DEBUG builds too
+    // so updates install over previous versions without uninstalling.
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("AA_KEYSTORE_PATH")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("AA_STORE_PASSWORD")
+                keyAlias = System.getenv("AA_KEY_ALIAS")
+                keyPassword = System.getenv("AA_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.taboia872.androidassist"
         minSdk = 26
@@ -19,6 +33,12 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            // Same release key on debug builds: reinstall over existing app
+            // keeps data (user request) — no more uninstall/reinstall dance.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

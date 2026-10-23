@@ -248,6 +248,8 @@ object Strings {
     const val themeSection = "Theme"
     const val copyCode = "Copy code"
     const val copied = "Copied"
+    const val modelAnsweredTitle = "AndroidAssist"
+    const val modelAnsweredBody = "The model answered — tap to open"
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
@@ -497,6 +499,8 @@ object Strings {
         themeSection -> "Tema"
         copyCode -> "Copiar código"
         copied -> "Copiado"
+        modelAnsweredTitle -> "AndroidAssist"
+        modelAnsweredBody -> "O modelo respondeu — toque para abrir"
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
 

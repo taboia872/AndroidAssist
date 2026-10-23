@@ -18,11 +18,30 @@ import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.tts.TtsManager
 
 class MainActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        ChatSessions.appInForeground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ChatSessions.appInForeground = false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppSettings.init(this)
         ChatSessions.init(this)
         TtsManager.init(this, AppSettings.config.value.ttsLanguage)
+        // Heads-up notifications for backgrounded model answers (API 33+)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            registerForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+            ) {}.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         enableEdgeToEdge()
         setContent {
             var screen by remember { mutableStateOf("chat") }

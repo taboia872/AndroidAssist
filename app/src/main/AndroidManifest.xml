@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Voice capture for the assistant overlay (step 5) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Notify the user when the model answers while the app is backgrounded -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- API 30+: without these <queries> the system speech recognizer is
          invisible to the app and SpeechRecognizer fails with a client

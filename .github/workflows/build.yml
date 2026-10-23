@@ -25,7 +25,17 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Build debug APK
+      - name: Decode signing key
+        run: |
+          echo "${{ secrets.AA_KEYSTORE_BASE64 }}" | base64 -d > /tmp/androidassist.keystore
+          echo "AA_KEYSTORE_PATH=/tmp/androidassist.keystore" >> $GITHUB_ENV
+
+      - name: Build debug APK (release-signed: installs over previous builds)
+        env:
+          AA_KEYSTORE_PATH: /tmp/androidassist.keystore
+          AA_STORE_PASSWORD: ${{ secrets.AA_STORE_PASSWORD }}
+          AA_KEY_ALIAS: ${{ secrets.AA_KEY_ALIAS }}
+          AA_KEY_PASSWORD: ${{ secrets.AA_KEY_PASSWORD }}
         run: gradle assembleDebug --stacktrace --no-daemon
 
       - uses: actions/upload-artifact@v4

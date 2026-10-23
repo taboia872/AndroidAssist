@@ -295,6 +295,13 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             finalizeTurn()
             status = ""
 
+            // Heads-up: the model finished while the app was backgrounded —
+            // tell the user WITHOUT leaking the answer into the notification
+            // (privacy: shade can show over other apps / lock screen).
+            if (!ChatSessions.appInForeground) {
+                notifyAnswered()
+            }
+
             // Speak the FINAL answer block only.
             val lastMsg = messages.lastOrNull { it.role == "assistant" }
             val lastAnswer = lastMsg?.blocks?.lastOrNull { it.kind == "answer" }?.text
@@ -389,6 +396,49 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return callId
     }
 
+    /** "The model answered" notification (no content) when backgrounded. */
+    private fun notifyAnswered() {
+        val c = ctx ?: return
+        val notificationManager =
+            c.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                as android.app.NotificationManager
+        val channelId = "assistant_answers"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId, "Model answers",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+        val intent = android.content.Intent(c, com.taboia872.androidassist.MainActivity::class.java)
+        val pending = android.app.PendingIntent.getActivity(
+            c, 0, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = com.taboia872.androidassist.i18n.Strings.t(
+            com.taboia872.androidassist.i18n.Strings.modelAnsweredTitle)
+        val text = com.taboia872.androidassist.i18n.Strings.t(
+            com.taboia872.androidassist.i18n.Strings.modelAnsweredBody)
+        val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(c, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(c)
+        }
+        val notification = builder
+            .setSmallIcon(android.R.drawable.ic_menu_send)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        try {
+            notificationManager.notify(1001, notification)
+        } catch (e: SecurityException) {
+            // Notification permission not granted (API 33+) — skip silently
+        }
+    }
+
     /** Answer text streamed so far in the CURRENT turn (for tool replay). */
     private fun answerBeforeTool(): String {
         if (turnMsgIdx !in messages.indices) return ""
@@ -404,6 +454,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
  * and backgrounding because the session owns its coroutine scope.
  */
 object ChatSessions {
+
+    /** App in the FOREGROUND? Activities flip this in onResume/onPause. */
+    @Volatile var appInForeground = false
     @Volatile private var initialized = false
     lateinit var main: ChatSession
         private set
