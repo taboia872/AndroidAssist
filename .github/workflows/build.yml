@@ -30,7 +30,7 @@ jobs:
           echo "${{ secrets.AA_KEYSTORE_BASE64 }}" | base64 -d > /tmp/androidassist.keystore
           echo "AA_KEYSTORE_PATH=/tmp/androidassist.keystore" >> $GITHUB_ENV
 
-      - name: Build debug APK (release-signed: installs over previous builds)
+      - name: "Build debug APK (release-signed, installs over previous builds)"
         env:
           AA_KEYSTORE_PATH: /tmp/androidassist.keystore
           AA_STORE_PASSWORD: ${{ secrets.AA_STORE_PASSWORD }}
