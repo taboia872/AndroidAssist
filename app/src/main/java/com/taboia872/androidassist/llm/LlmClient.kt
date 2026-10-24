@@ -27,8 +27,8 @@ data class ToolExchange(
 sealed class StreamEvent {
     data class Content(val text: String) : StreamEvent()
     data class Reasoning(val text: String) : StreamEvent()
-    /** Model requests the web_search tool; carries the query it wants. */
-    data class ToolCall(val id: String, val query: String) : StreamEvent()
+    /** Model requests a tool; carries the raw arguments JSON. */
+    data class ToolCall(val id: String, val name: String, val args: String) : StreamEvent()
     data class Error(val message: String) : StreamEvent()
 }
 
@@ -59,29 +59,99 @@ object LlmClient {
         activeConn = null
     }
 
-    /** OpenAI tools declaration for web_search (function calling). */
-    private fun webSearchTool(): JSONObject = JSONObject().apply {
+    // ----------------------------------------------------------- tools
+
+    /** Simple tool spec builder. */
+    private fun tool(
+        name: String,
+        description: String,
+        properties: Pair<String, String>, // (paramName, description)
+        required: List<String> = emptyList(),
+        extraProps: Map<String, Pair<String, String>> = emptyMap() // param -> (type, desc)
+    ): JSONObject = JSONObject().apply {
         put("type", "function")
         put("function", JSONObject().apply {
-            put("name", "web_search")
-            put("description",
-                "Search the web for current information (news, prices, weather, " +
-                    "recent events). Use when the question needs up-to-date facts. " +
-                    "If the results do not answer the question, CALL web_search " +
-                    "AGAIN with different, more specific search terms (you may " +
-                    "search up to 3 times).")
+            put("name", name)
+            put("description", description)
             put("parameters", JSONObject().apply {
                 put("type", "object")
                 put("properties", JSONObject().apply {
-                    put("query", JSONObject().apply {
+                    put(properties.first, JSONObject().apply {
                         put("type", "string")
-                        put("description", "The search query, in the user's language")
+                        put("description", properties.second)
                     })
+                    extraProps.forEach { (param, typeDesc) ->
+                        put(param, JSONObject().apply {
+                            put("type", typeDesc.first)
+                            put("description", typeDesc.second)
+                        })
+                    }
                 })
-                put("required", org.json.JSONArray().put("query"))
+                if (required.isNotEmpty()) put("required", org.json.JSONArray(required))
             })
         })
     }
+
+    /**
+     * Device tool specs (Tier 1+2): local actions executed on the phone via
+     * Android Intents. Declared whenever deviceToolsEnabled is on.
+     */
+    private fun deviceToolSpecs(): List<JSONObject> = listOf(
+        tool(
+            "set_alarm",
+            "Set an alarm on the user's phone. Use for wake-up alarms and reminders at a specific TIME of day.",
+            "label" to "Short alarm label/message",
+            required = listOf("label"),
+            extraProps = mapOf(
+                "hour" to ("integer" to "Hour 0-23 (24h format)"),
+                "minute" to ("integer" to "Minute 0-59"),
+                "days" to ("array" to "Repeat days as strings: mon,tue,wed,thu,fri,sat,sun. Empty = one-time alarm")
+            )
+        ),
+        tool(
+            "set_timer",
+            "Start a countdown timer on the user's phone (e.g. 'remind me in 10 minutes', '5 minute egg timer').",
+            "label" to "Short timer label",
+            extraProps = mapOf(
+                "seconds" to ("integer" to "Total duration in seconds")
+            )
+        ),
+        tool(
+            "add_calendar_event",
+            "Open a new calendar event pre-filled on the user's calendar app. The user reviews and saves it there.",
+            "title" to "Event title",
+            required = listOf("title"),
+            extraProps = mapOf(
+                "begin_time" to ("string" to "Start time ISO 8601 local, e.g. 2026-10-22T15:30 (resolve relative dates like 'tomorrow 10am' to a real date first)"),
+                "duration_minutes" to ("integer" to "Event duration in minutes (default 60)"),
+                "all_day" to ("boolean" to "True for an all-day event"),
+                "description" to ("string" to "Optional event description/location")
+            )
+        ),
+        tool(
+            "open_app",
+            "Open an installed app on the user's phone by name (e.g. WhatsApp, Spotify, Camera).",
+            "app_name" to "App name as the user said it",
+            required = listOf("app_name")
+        ),
+        tool(
+            "read_clipboard",
+            "Read the current clipboard text (e.g. when the user says 'translate this' or 'what does this say' with content copied).",
+            "_" to "No parameters needed"
+        ),
+        tool(
+            "add_to_clipboard",
+            "Copy text to the clipboard so the user can paste it anywhere.",
+            "text" to "The exact text to copy",
+            required = listOf("text")
+        ),
+        tool(
+            "share_text",
+            "Open the Android share sheet with the given text so the user can send it to any app (WhatsApp, Telegram, email...).",
+            "text" to "The text to share",
+            required = listOf("text")
+        )
+    )
 
     /**
      * Streaming chat completion with FUNCTION CALLING when the server
@@ -121,8 +191,23 @@ object LlmClient {
                 put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
             }
             if (toolsEnabled) {
-                put("tools", JSONArray().put(webSearchTool()))
-                put("tool_choice", "auto")
+                val specs = JSONArray()
+                if (AppSettings.config.value.webSearchEnabled) {
+                    specs.put(tool(
+                        "web_search",
+                        "Search the web for current information (news, prices, weather, " +
+                            "recent events). Use when the question needs up-to-date facts.",
+                        "query" to "The search query, in the user's language",
+                        required = listOf("query")
+                    ))
+                }
+                if (AppSettings.config.value.deviceToolsEnabled) {
+                    deviceToolSpecs().forEach { specs.put(it) }
+                }
+                if (specs.length() > 0) {
+                    put("tools", specs)
+                    put("tool_choice", "auto")
+                }
             }
             put("messages", JSONArray().apply {
                 if (systemPrompt.isNotBlank()) {
@@ -250,12 +335,8 @@ object LlmClient {
             // Stream ended: assemble and emit any complete tool calls
             for ((idx, callId) in pendingToolIds) {
                 val name = pendingToolNames[idx] ?: continue
-                if (name != "web_search") continue
                 val rawArgs = pendingToolArgs[idx] ?: ""
-                val query = try {
-                    org.json.JSONObject(rawArgs).optString("query", "")
-                } catch (e: Exception) { rawArgs }
-                emit(StreamEvent.ToolCall(callId, query))
+                emit(StreamEvent.ToolCall(callId, name, rawArgs))
             }
         } catch (e: Exception) {
             emit(StreamEvent.Error(e.message ?: e.javaClass.simpleName))

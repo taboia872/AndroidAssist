@@ -37,8 +37,10 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
@@ -164,6 +166,12 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showTtsLangDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAccentDialog by remember { mutableStateOf(false) }
+    var showCalendarDialog by remember { mutableStateOf(false) }
+    var showCalendarModeDialog by remember { mutableStateOf(false) }
+    var calendarPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+    var calendarsList by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     var showSearchCountDialog by remember { mutableStateOf(false) }
     var showSearchRegionDialog by remember { mutableStateOf(false) }
     var showSearchFreshnessDialog by remember { mutableStateOf(false) }
@@ -456,6 +464,50 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    SettingsSection(title = Strings.t(Strings.deviceToolsLabel)) {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Build,
+                            title = Strings.t(Strings.deviceToolsLabel),
+                            subtitle = Strings.t(Strings.deviceToolsSub),
+                            checked = cfg.deviceToolsEnabled,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(deviceToolsEnabled = on) }
+                            }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Event,
+                            title = Strings.t(Strings.calendarModeLabel),
+                            subtitle = if (cfg.calendarMode == "direct")
+                                Strings.t(Strings.calendarModeDirect)
+                            else Strings.t(Strings.calendarModeConfirm),
+                            onClick = { showCalendarModeDialog = true }
+                        )
+                        if (cfg.calendarMode == "direct") {
+                            SettingsItem(
+                                icon = Icons.Default.Event,
+                                title = Strings.t(Strings.defaultCalendarLabel),
+                                subtitle = currentCalendarName(cfg.defaultCalendarId, calendarsList),
+                                onClick = {
+                                    // Need permission to list calendars; ask then refresh
+                                    val perms = arrayOf(
+                                        android.Manifest.permission.READ_CALENDAR,
+                                        android.Manifest.permission.WRITE_CALENDAR
+                                    )
+                                    val need = perms.filter {
+                                        context.checkSelfPermission(it) !=
+                                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    }
+                                    if (need.isEmpty()) {
+                                        calendarsList = listSystemCalendars(context)
+                                        showCalendarDialog = true
+                                    } else {
+                                        calendarPermissionLauncher.launch(need.toTypedArray())
+                                    }
+                                }
                             )
                         }
                     }
@@ -804,6 +856,29 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showLanguageDialog = false
             },
             onDismiss = { showLanguageDialog = false }
+        )
+    }
+
+    if (showCalendarDialog) {
+        CalendarPickerDialog(
+            current = cfg.defaultCalendarId,
+            calendars = calendarsList,
+            onSelected = { id ->
+                AppSettings.update { it.copy(defaultCalendarId = id) }
+                showCalendarDialog = false
+            },
+            onDismiss = { showCalendarDialog = false }
+        )
+    }
+
+    if (showCalendarModeDialog) {
+        CalendarModeDialog(
+            current = cfg.calendarMode,
+            onSelected = { m ->
+                AppSettings.update { it.copy(calendarMode = m) }
+                showCalendarModeDialog = false
+            },
+            onDismiss = { showCalendarModeDialog = false }
         )
     }
 
@@ -2925,6 +3000,130 @@ private fun AccentColorDialog(
                             Text(accentName(id), style = MaterialTheme.typography.bodyLarge)
                         }
                     }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** List writable system calendars: (id, display name). */
+private fun listSystemCalendars(context: android.content.Context): List<Pair<Long, String>> {
+    return try {
+        val uri = android.provider.CalendarContract.Calendars.CONTENT_URI
+        context.contentResolver.query(
+            uri,
+            arrayOf(
+                android.provider.CalendarContract.Calendars._ID,
+                android.provider.CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+                android.provider.CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL
+            ),
+            null, null,
+            android.provider.CalendarContract.Calendars.CALENDAR_DISPLAY_NAME + " ASC"
+        )?.use { c ->
+            val out = mutableListOf<Pair<Long, String>>()
+            while (c.moveToNext()) {
+                val access = c.getInt(2)
+                // only calendars we can write to (owner/editor/contributor)
+                if (access >= android.provider.CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
+                    out.add(c.getLong(0) to c.getString(1))
+                }
+            }
+            out
+        } ?: emptyList()
+    } catch (e: SecurityException) {
+        emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+/** Name of the picked calendar id (lookup + fallback). */
+private fun currentCalendarName(id: Long, known: List<Pair<Long, String>>): String {
+    return known.firstOrNull { it.first == id }?.second
+        ?: if (id > 0) "id $id" else Strings.t(Strings.pickCalendar)
+}
+
+/** System-calendar picker (direct-save mode). */
+@Composable
+private fun CalendarPickerDialog(
+    current: Long,
+    calendars: List<Pair<Long, String>>,
+    onSelected: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.defaultCalendarLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (calendars.isEmpty()) {
+                    Text(
+                        Strings.t(Strings.noWritableCalendars),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                calendars.forEach { (id, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(id) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = current == id, onClick = { onSelected(id) })
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+        }
+    )
+}
+
+/** Calendar save-mode picker: direct (hands-free) or confirm-in-app. */
+@Composable
+private fun CalendarModeDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        "direct" to Strings.t(Strings.calendarModeDirect),
+        "confirm" to Strings.t(Strings.calendarModeConfirm)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.calendarModeLabel)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    Strings.t(Strings.calendarModeHint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                options.forEach { (code, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelected(code) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = current == code,
+                            onClick = { onSelected(code) }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
             }
         },
         confirmButton = {

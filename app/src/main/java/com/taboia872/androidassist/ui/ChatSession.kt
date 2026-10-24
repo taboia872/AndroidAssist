@@ -12,6 +12,7 @@ import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.search.SearchOutcome
+import com.taboia872.androidassist.tools.DeviceTools
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
@@ -238,53 +239,71 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             //      run the search and replay with the result attached. ----
             val callId = streamRound(history, basePrompt, useTools)
             if (callId != null) {
-                val searchQuery = pendingToolQuery.ifBlank { q }
-                status = Strings.t(Strings.searching)
-
-                val outcome = SearchEngines.search(searchQuery)
-                val detailForUser: String
+                val toolName = pendingToolName
+                val toolHeader: String
                 val toolResult: String
-                when (outcome) {
-                    is SearchOutcome.Ok -> {
-                        detailForUser = buildString {
-                            outcome.results.forEachIndexed { i, r ->
-                                if (i > 0) append("\n\n")
-                                append("${i + 1}. ${r.title}\n")
-                                append("${r.url}\n")
-                                append(r.snippet)
+                if (toolName == "web_search") {
+                    status = Strings.t(Strings.searching)
+                    val searchQuery = try {
+                        org.json.JSONObject(pendingToolArgs).optString("query", "").ifBlank { q }
+                    } catch (e: Exception) { q }
+                    val outcome = SearchEngines.search(searchQuery)
+                    val detailForUser: String
+                    when (outcome) {
+                        is SearchOutcome.Ok -> {
+                            detailForUser = buildString {
+                                outcome.results.forEachIndexed { i, r ->
+                                    if (i > 0) append("\n\n")
+                                    append("${i + 1}. ${r.title}\n")
+                                    append("${r.url}\n")
+                                    append(r.snippet)
+                                }
                             }
-                        }
-                        toolResult = buildString {
-                            append("Web search results for \"$searchQuery\":\n")
-                            outcome.results.forEach { r ->
+                            toolResult = buildString {
+                                append("Web search results for \"$searchQuery\":\n")
+                                outcome.results.forEach { r ->
+                                    append("\n---\n")
+                                    append("Title: ${r.title}\n")
+                                    append("URL: ${r.url}\n")
+                                    append("Snippet: ${r.snippet}")
+                                }
                                 append("\n---\n")
-                                append("Title: ${r.title}\n")
-                                append("URL: ${r.url}\n")
-                                append("Snippet: ${r.snippet}")
                             }
-                            append("\n---\n")
+                        }
+                        is SearchOutcome.Failed -> {
+                            val engine = AppSettings.config.value.searchEngine
+                            searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
+                            detailForUser = outcome.reason
+                            toolResult = "The web search FAILED: ${outcome.reason}. " +
+                                "Tell the user the search is not working right now " +
+                                "(quote the reason) - do NOT invent facts."
                         }
                     }
-                    is SearchOutcome.Failed -> {
-                        val engine = AppSettings.config.value.searchEngine
-                        searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
-                        detailForUser = outcome.reason
-                        toolResult = "The web search FAILED: ${outcome.reason}. " +
-                            "Tell the user the search is not working right now " +
-                            "(quote the reason) — do NOT invent facts."
+                    toolHeader = "\ud83d\udd0d $searchQuery"
+                    addBlock("tool", toolHeader, detailForUser)
+                } else {
+                    // DEVICE TOOL: executed locally via Android Intents (alarm,
+                    // timer, calendar, open app, clipboard, share).
+                    val c = ctx
+                    val res = if (c != null) {
+                        DeviceTools.execute(c, toolName, pendingToolArgs)
+                    } else {
+                        DeviceTools.Result(
+                            false, toolName,
+                            "Cannot run device tools in this context.", "search"
+                        )
                     }
+                    toolHeader = res.userText
+                    toolResult = res.modelText
+                    addBlock("tool", toolHeader, "")
                 }
-
-                // Tool block: numbered marker, results inside (tap to read)
-                addBlock("tool", "\ud83d\udd0d $searchQuery", detailForUser)
 
                 toolExchanges.add(ToolExchange(
                     callId = callId,
-                    callName = "web_search",
+                    callName = toolName,
                     assistantContent = answerBeforeTool(),
                     result = toolResult
                 ))
-
                 // Final round with the tool result attached
                 streamRound(history, basePrompt, toolsEnabled = false)
             }
@@ -351,15 +370,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
     // ------------------------------------------------------------ internals
 
-    /** Query of the tool call captured by the last streamRound. */
-    private var pendingToolQuery = ""
+    /** Tool call captured by the last streamRound: (id, name, args JSON). */
+    private var pendingToolId = ""
+    private var pendingToolName = ""
+    private var pendingToolArgs = ""
 
     /** Completed tool exchanges of the CURRENT turn (multi-search loop). */
     private val toolExchanges = mutableListOf<ToolExchange>()
 
     /**
      * Stream one round into the turn timeline. Returns the tool call id when
-     * the model wants to search (query captured in [pendingToolQuery]),
+     * the model wants to search (call captured in the pendingTool* fields),
      * or null when the round finished without a tool call.
      */
     private suspend fun streamRound(
@@ -368,7 +389,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         toolsEnabled: Boolean
     ): String? {
         var callId: String? = null
-        pendingToolQuery = ""
+        pendingToolId = ""
+        pendingToolName = ""
+        pendingToolArgs = ""
         LlmClient.chat(
             history,
             basePrompt,
@@ -386,7 +409,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 }
                 is StreamEvent.ToolCall -> {
                     callId = event.id
-                    pendingToolQuery = event.query
+                    pendingToolId = event.id
+                    pendingToolName = event.name
+                    pendingToolArgs = event.args
                 }
                 is StreamEvent.Error -> {
                     addBlock("answer", "\u26a0\ufe0f ${event.message}")

@@ -21,6 +21,13 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -286,6 +293,18 @@ fun ReasoningBlock(text: String, liveStream: Boolean = false) {
 @Composable
 fun ToolBlock(text: String, detail: String = "") {
     var expanded by rememberSaveable(text + detail) { mutableStateOf(false) }
+    // Icon follows the tool: search (🔍) keeps TravelExplore; device tools
+    // (⏰ ⏱ 📅 📱 📋 🔗) map to their Material icons.
+    val icon: androidx.compose.ui.graphics.vector.ImageVector = when {
+        text.startsWith("\ud83d\udd0d") -> Icons.Default.TravelExplore
+        text.startsWith("\u23f0") -> Icons.Default.Alarm
+        text.startsWith("\u23f1") -> Icons.Default.Timer
+        text.startsWith("\ud83d\udcc5") -> Icons.Default.Event
+        text.startsWith("\ud83d\udcf1") -> Icons.Default.Apps
+        text.startsWith("\ud83d\udccb") -> Icons.Default.ContentPaste
+        text.startsWith("\ud83d\udd17") -> Icons.Default.Share
+        else -> Icons.Default.Build
+    }
     Surface(
         shape = RoundedCornerShape(14.dp),
         tonalElevation = 1.dp,
@@ -301,14 +320,17 @@ fun ToolBlock(text: String, detail: String = "") {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.TravelExplore,
+                    icon,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text,
+                    text.removePrefix("\ud83d\udd0d").removePrefix("\u23f0")
+                        .removePrefix("\u23f1").removePrefix("\ud83d\udcc5")
+                        .removePrefix("\ud83d\udcf1").removePrefix("\ud83d\udccb")
+                        .removePrefix("\ud83d\udd17"),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.weight(1f),

@@ -63,6 +63,18 @@ data class AppConfig(
     val appLanguage: String = "",
     /** Theme: "dynamic" (Material You), "light", "dark"; "" = follow system (static teal) */
     val appTheme: String = "",
+    /** Device tools (alarm, timer, calendar, open app, clipboard, share) */
+    val deviceToolsEnabled: Boolean = true,
+    /**
+     * Calendar save mode: "direct" writes straight into the selected system
+     * calendar (hands-free, needs WRITE_CALENDAR); "confirm" opens the
+     * calendar app pre-filled (no permission). DIRECT only shows in the
+     * user's Fossify Calendar if that calendar is enabled in its CalDAV
+     * settings (Fossify mirrors system -> its own DB).
+     */
+    val calendarMode: String = "direct",
+    /** Target calendar id (CalendarContract) for direct saves; 0 = none picked */
+    val defaultCalendarId: Long = 0,
     /**
      * No-think mode: suppress reasoning for faster answers. Sends
      * chat_template_kwargs {enable_thinking:false} (llama-server) plus a
@@ -198,6 +210,9 @@ object AppSettings {
     private const val K_APP_LANGUAGE = "app_language"
     private const val K_APP_THEME = "app_theme"
     private const val K_NO_THINK = "no_think"
+    private const val K_DEVICE_TOOLS = "device_tools"
+    private const val K_CALENDAR_MODE = "calendar_mode"
+    private const val K_DEFAULT_CALENDAR = "default_calendar_id"
     private const val K_ACCENT_COLOR = "accent_color"
     private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
@@ -277,6 +292,9 @@ object AppSettings {
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
             appTheme = p.getString(K_APP_THEME, "") ?: "",
             noThink = p.getBoolean(K_NO_THINK, false),
+            deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
+            calendarMode = p.getString(K_CALENDAR_MODE, "direct") ?: "direct",
+            defaultCalendarId = p.getLong(K_DEFAULT_CALENDAR, 0),
             accentColor = p.getString(K_ACCENT_COLOR, "") ?: "",
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
             customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
@@ -312,6 +330,9 @@ object AppSettings {
             .putString(K_APP_LANGUAGE, next.appLanguage)
             .putString(K_APP_THEME, next.appTheme)
             .putBoolean(K_NO_THINK, next.noThink)
+            .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
+            .putString(K_CALENDAR_MODE, next.calendarMode)
+            .putLong(K_DEFAULT_CALENDAR, next.defaultCalendarId)
             .putString(K_ACCENT_COLOR, next.accentColor)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
             .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
