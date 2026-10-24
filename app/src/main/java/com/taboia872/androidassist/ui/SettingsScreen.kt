@@ -3183,6 +3183,7 @@ private fun CalendarModeDialog(
  * empty list = allow ALL (default); starring any app switches to allow-list
  * mode where only starred apps can be opened by the model.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppWhitelistDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
