@@ -259,6 +259,10 @@ object Strings {
     const val defaultCalendarLabel = "Default calendar"
     const val pickCalendar = "Pick a calendar"
     const val noWritableCalendars = "No writable calendars found"
+    const val allowedAppsLabel = "Allowed apps"
+    const val allowedAppsAll = "All apps allowed"
+    const val allowedAppsCount = "apps allowed"
+    const val allowedAppsHint = "Star the apps the assistant may open. Empty list = all apps allowed; star any app to switch to allow-list mode."
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
@@ -519,6 +523,10 @@ object Strings {
         defaultCalendarLabel -> "Calendário padrão"
         pickCalendar -> "Escolha um calendário"
         noWritableCalendars -> "Nenhum calendário gravável encontrado"
+        allowedAppsLabel -> "Apps permitidos"
+        allowedAppsAll -> "Todos os apps permitidos"
+        allowedAppsCount -> "apps permitidos"
+        allowedAppsHint -> "Favorite os apps que o assistente pode abrir. Lista vazia = todos permitidos; marque qualquer app para ativar o modo lista de permissão."
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
 

@@ -111,22 +111,44 @@ object ModelCatalog {
 
             val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0)
                 ?: m.optInt("context_window", 0)
+            // Pricing matters ONLY on OpenRouter (the one provider where
+            // free/paid models coexist meaningfully). Groq is all free-tier
+            // API; Ollama/NVIDIA/custom are whatever the user runs — showing
+            // "$0.00/M tokens" there is noise (user report).
+            val isOpenRouter = id.contains("/")
             val pricing = m.optJSONObject("pricing")
             val promptPrice = pricing?.optString("prompt", "0")?.toDoubleOrNull() ?: 0.0
-            val isFree = pricing == null || id.endsWith(":free") || promptPrice == 0.0
+            val isFree = !isOpenRouter || pricing == null ||
+                id.endsWith(":free") || promptPrice == 0.0
+
+            // Capability chips (parse what the server actually gives)
+            val inputModalities = m.optJSONArray("input_modalities")
+                ?: m.optJSONObject("architecture")?.optJSONArray("input_modalities")
+            fun hasMod(s: String): Boolean {
+                val arr = inputModalities ?: return false
+                return (0 until arr.length()).any { k -> arr.optString(k) == s }
+            }
+            val supportsAudioIn = hasMod("audio")
+            val supportsAudioOut = (m.optJSONArray("output_modalities")
+                ?: m.optJSONObject("architecture")?.optJSONArray("output_modalities"))
+                ?.let { arr -> (0 until arr.length()).any { k -> arr.optString(k) == "audio" } } == true
+            val supportsImageOut = (m.optJSONArray("output_modalities")
+                ?: m.optJSONObject("architecture")?.optJSONArray("output_modalities"))
+                ?.let { arr -> (0 until arr.length()).any { k -> arr.optString(k) == "image" } } == true
 
             val desc = buildString {
-                if (pricing != null) {
+                if (isOpenRouter && pricing != null) {
                     if (isFree) append("Free")
                     else append(String.format("$%.2f/M tokens", promptPrice * 1_000_000))
-                } else {
-                    append("Hosted")
                 }
                 if (contextLength > 0) {
-                    append(" · ")
+                    if (isNotEmpty()) append(" · ")
                     append(if (contextLength >= 1000) "${contextLength / 1000}K ctx" else "$contextLength ctx")
                 }
                 if (supportsVision) append(" · vision")
+                if (supportsAudioIn) append(" · audio-in")
+                if (supportsAudioOut) append(" · audio-out")
+                if (supportsImageOut) append(" · image-gen")
             }
 
             out.add(ModelInfo(id, name, desc, supportsVision, isFree))

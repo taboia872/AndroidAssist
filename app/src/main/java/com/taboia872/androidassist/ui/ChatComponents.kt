@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.CircularProgressIndicator
@@ -303,6 +304,7 @@ fun ToolBlock(text: String, detail: String = "") {
         text.startsWith("\ud83d\udcf1") -> Icons.Default.Apps
         text.startsWith("\ud83d\udccb") -> Icons.Default.ContentPaste
         text.startsWith("\ud83d\udd17") -> Icons.Default.Share
+        text.startsWith("\ud83d\udccd") -> Icons.Default.Place
         else -> Icons.Default.Build
     }
     Surface(
@@ -330,7 +332,8 @@ fun ToolBlock(text: String, detail: String = "") {
                     text.removePrefix("\ud83d\udd0d").removePrefix("\u23f0")
                         .removePrefix("\u23f1").removePrefix("\ud83d\udcc5")
                         .removePrefix("\ud83d\udcf1").removePrefix("\ud83d\udccb")
-                        .removePrefix("\ud83d\udd17"),
+                        .removePrefix("\ud83d\udd17")
+                        .removePrefix("\ud83d\udccd"),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.weight(1f),

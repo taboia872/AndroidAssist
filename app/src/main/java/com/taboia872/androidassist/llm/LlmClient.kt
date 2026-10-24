@@ -150,6 +150,21 @@ object LlmClient {
             "Open the Android share sheet with the given text so the user can send it to any app (WhatsApp, Telegram, email...).",
             "text" to "The text to share",
             required = listOf("text")
+        ),
+        tool(
+            "get_location",
+            "Get the user's approximate current location (latitude/longitude, ~city block accuracy). Use it for local questions: transit (bus/metro stops and schedules), nearby places, weather. Coordinates are approximate and stay private.",
+            "_" to "No parameters needed"
+        ),
+        tool(
+            "open_map",
+            "Open a point on the map in the user's preferred map app (a chooser appears if several are installed). Use after get_location when the user wants to SEE a place.",
+            "latitude" to "Latitude of the point",
+            required = listOf("latitude"),
+            extraProps = mapOf(
+                "longitude" to ("number" to "Longitude of the point"),
+                "label" to ("string" to "Short place label shown on the map pin")
+            )
         )
     )
 
@@ -272,6 +287,10 @@ object LlmClient {
             if (cfg.apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer ${cfg.apiKey}")
         }
 
+        // Legacy text-format tool calls (some cloud models): buffered while a
+        // <function=...> block is open.
+        var toolCallTextBuffer: String? = null
+
         // Streamed tool-call accumulators (arguments arrive in fragments)
         val pendingToolIds = mutableMapOf<Int, String>()
         val pendingToolNames = mutableMapOf<Int, String>()
@@ -301,7 +320,24 @@ object LlmClient {
                         ?: continue
 
                     val content = delta.opt("content")
-                    if (content is String && content.isNotEmpty()) emit(StreamEvent.Content(content))
+                    if (content is String && content.isNotEmpty()) {
+                        // Some cloud models (Ollama Cloud, Groq) emit tool calls
+                        // as TEXT in the legacy format on the follow-up round
+                        // (tools are not re-declared there):
+                        //   <function=open_app><parameter=app_name>...</parameter></function>
+                        // Buffer it while the pattern is open; emit a REAL
+                        // ToolCall when it closes instead of leaking the syntax
+                        // into the chat bubble (user report).
+                        if (toolCallTextBuffer != null || content.contains("<function=")) {
+                            toolCallTextBuffer = (toolCallTextBuffer ?: "") + content
+                            if (toolCallTextBuffer!!.contains("</function>")) {
+                                parseLegacyToolCall(toolCallTextBuffer!!)?.let { emit(it) }
+                                toolCallTextBuffer = null
+                            }
+                        } else {
+                            emit(StreamEvent.Content(content))
+                        }
+                    }
 
                     // Reasoning tokens (DeepSeek-R1 style), also common as "reasoning"
                     val reasoning = delta.opt("reasoning_content") ?: delta.opt("reasoning")
@@ -332,6 +368,9 @@ object LlmClient {
                     }
                 }
             }
+            // Unterminated legacy block: the model truncated mid-call — drop it
+            toolCallTextBuffer = null
+
             // Stream ended: assemble and emit any complete tool calls
             for ((idx, callId) in pendingToolIds) {
                 val name = pendingToolNames[idx] ?: continue
@@ -345,4 +384,30 @@ object LlmClient {
             conn.disconnect()
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Parse the legacy TEXT tool-call format emitted by some models even on
+     * cloud providers (Ollama Cloud, Groq — user report):
+     *   <function=open_app><parameter=app_name>WhatsApp</parameter></function>
+     * Returns null when malformed.
+     */
+    private fun parseLegacyToolCall(text: String): StreamEvent? {
+        val nameMatch = Regex("<function=([a-zA-Z_][a-zA-Z0-9_]*)>").find(text)
+            ?: return null
+        val name = nameMatch.groupValues[1]
+        val body = text.substring(nameMatch.range.last + 1)
+            .substringBefore("</function>")
+        val args = JSONObject()
+        Regex("<parameter=([a-zA-Z_][a-zA-Z0-9_]*)>(.*?)</parameter>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(body).forEach { m ->
+                args.put(m.groupValues[1], m.groupValues[2].trim())
+            }
+        if (args.length() == 0) {
+            val rest = body.trim().removePrefix("(").removeSuffix(")")
+            if (rest.isNotBlank()) args.put("query", rest)
+        }
+        return StreamEvent.ToolCall(
+            "call_legacy_${System.currentTimeMillis()}", name, args.toString()
+        )
+    }
 }

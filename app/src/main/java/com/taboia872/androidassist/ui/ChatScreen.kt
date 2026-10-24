@@ -82,6 +82,7 @@ import java.util.Locale
 @Composable
 fun ChatScreen(
     resumeChatId: String? = null,
+    onConsumeResumeId: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit
 ) {
@@ -93,9 +94,12 @@ fun ChatScreen(
     // App-scoped session: streaming and the end-of-turn save survive
     // navigation (Settings/History) and backgrounding.
     val session = ChatSessions.main
+    // Load a history-picked chat ONCE and clear the request — re-entering the
+    // screen from Settings must not reload it again over the live conversation.
     LaunchedEffect(resumeChatId) {
         if (resumeChatId != null) {
             session.loadFrom(context.applicationContext, resumeChatId!!)
+            onConsumeResumeId()
         }
     }
     var input by remember { mutableStateOf("") }

@@ -42,6 +42,8 @@ object DeviceTools {
                 "read_clipboard" -> readClipboard(context)
                 "add_to_clipboard" -> copyToClipboard(context, args)
                 "share_text" -> shareText(context, args)
+                "get_location" -> getLocation(context)
+                "open_map" -> openMap(context, args)
                 else -> Result(
                     ok = false,
                     userText = "? $name",
@@ -289,6 +291,10 @@ object DeviceTools {
         val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(mainIntent, 0)
         val w = wanted.lowercase(Locale.ROOT)
+
+        // User-curated whitelist (Tools tab): when not empty, ONLY those
+        // packages may be opened by the model.
+        val allowed = AppSettings.allowedAppList()
         // best match: exact label > label contains > package contains
         var best: android.content.pm.ResolveInfo? = null
         var bestScore = -1
@@ -309,6 +315,12 @@ object DeviceTools {
         if (best == null || bestScore < 0) {
             return Result(false, "\ud83d\udcf1 ? '$wanted'",
                 "No installed app matches '$wanted'. Ask the user to check the name.", "app")
+        }
+        if (allowed.isNotEmpty() && !allowed.contains(best!!.activityInfo.packageName)) {
+            return Result(false, "\ud83d\udcf1 '$wanted' bloqueado",
+                "The app '${best!!.loadLabel(pm)}' is not in the user's allowed-apps " +
+                    "list (Settings > Tools). Tell the user to add it there if they want " +
+                    "the assistant to open it.", "app")
         }
         val label = best!!.loadLabel(pm).toString()
         val launch = pm.getLaunchIntentForPackage(best!!.activityInfo.packageName)
@@ -368,6 +380,94 @@ object DeviceTools {
                 "The system share sheet is open with the text — the user picks the target app.", "share")
         } catch (e: Exception) {
             Result(false, "\ud83d\udd17 ?", "Could not open the share sheet: ${e.message}.", "share")
+        }
+    }
+
+    // ------------------------------------------------------------- location
+
+    /**
+     * Coarse location via the passive/network provider — NO Google services,
+     * no geocoding API. Returns lat/lon (+approx accuracy) so the model can
+     * feed transit sites (bus schedules etc.) with web_search.
+     */
+    private fun getLocation(context: Context): Result {
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            return Result(
+                true, "\ud83d\udccd permiss\u00e3o necess\u00e1ria",
+                "Location permission is not granted. Ask the user to grant " +
+                    "location permission to the app in system settings, then try again.",
+                "location"
+            )
+        }
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        // Last known location: instant, no battery, privacy-friendly (no new fix)
+        val providers = listOf(
+            android.location.LocationManager.NETWORK_PROVIDER,
+            android.location.LocationManager.PASSIVE_PROVIDER,
+            android.location.LocationManager.GPS_PROVIDER
+        )
+        var best: android.location.Location? = null
+        for (p in providers) {
+            try {
+                val l = lm.getLastKnownLocation(p) ?: continue
+                if (best == null || l.time > best!!.time) best = l
+            } catch (e: SecurityException) {
+            } catch (e: IllegalArgumentException) {
+            }
+        }
+        return if (best == null) {
+            Result(
+                true, "\ud83d\udccd sem fix",
+                "No last-known location available yet. Ask the user to open a map " +
+                    "app once so the system caches a position, or enable location.",
+                "location"
+            )
+        } else {
+            val lat = best!!.latitude
+            val lon = best!!.longitude
+            val acc = best!!.accuracy.toInt()
+            Result(
+                true, "\ud83d\udccd ${"%.4f".format(lat)}, ${"%.4f".format(lon)} (~${acc}m)",
+                "Approximate location: latitude $lat, longitude $lon, accuracy ~${acc}m. " +
+                    "Use these coordinates for local searches (transit stops, nearby places). " +
+                    "Do not reveal exact coordinates to the user unless asked.",
+                "location"
+            )
+        }
+    }
+
+    /** Open a point in the user's map app (geo: URI — Organic Maps, OsmAnd...). */
+    private fun openMap(context: Context, args: org.json.JSONObject): Result {
+        val lat = args.optDouble("latitude", Double.NaN)
+        val lon = args.optDouble("longitude", Double.NaN)
+        val label = args.optString("label", "")
+        if (lat.isNaN() || lon.isNaN()) {
+            return Result(false, "\ud83d\udccd ?", "Provide latitude and longitude.", "location")
+        }
+        // geo:lat,lon?z=17&q=lat,lon(label) — works on Organic Maps,
+        // woheller69 maps and OsmAnd; a chooser appears when several are
+        // installed. NO Google Maps dependency.
+        val uri = android.net.Uri.parse(
+            "geo:$lat,$lon?z=17&q=$lat,$lon(${java.net.URLEncoder.encode(label.ifBlank { "Ponto" }, "UTF-8")})"
+        )
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(Intent.createChooser(intent, null).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            Result(
+                true, "\ud83d\udccd ${label.ifBlank { "mapa" }}",
+                "Map opened at $lat,$lon" + if (label.isBlank()) "." else " ('$label') — " +
+                    "the user picks the map app in the chooser.",
+                "location"
+            )
+        } catch (e: Exception) {
+            Result(false, "\ud83d\udccd ?", "No map app handles geo: URIs: ${e.message}. " +
+                "Suggest installing Organic Maps or OsmAnd.", "location")
         }
     }
 }

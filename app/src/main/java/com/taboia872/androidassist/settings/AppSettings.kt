@@ -76,6 +76,11 @@ data class AppConfig(
     /** Target calendar id (CalendarContract) for direct saves; 0 = none picked */
     val defaultCalendarId: Long = 0,
     /**
+     * open_app whitelist: JSON array of package names the model may open.
+     * EMPTY = allow any installed app (default, current behavior).
+     */
+    val allowedApps: String = "[]",
+    /**
      * No-think mode: suppress reasoning for faster answers. Sends
      * chat_template_kwargs {enable_thinking:false} (llama-server) plus a
      * directive in the system prompt. For small/local models.
@@ -213,6 +218,7 @@ object AppSettings {
     private const val K_DEVICE_TOOLS = "device_tools"
     private const val K_CALENDAR_MODE = "calendar_mode"
     private const val K_DEFAULT_CALENDAR = "default_calendar_id"
+    private const val K_ALLOWED_APPS = "allowed_apps"
     private const val K_ACCENT_COLOR = "accent_color"
     private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
@@ -295,6 +301,7 @@ object AppSettings {
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
             calendarMode = p.getString(K_CALENDAR_MODE, "direct") ?: "direct",
             defaultCalendarId = p.getLong(K_DEFAULT_CALENDAR, 0),
+            allowedApps = p.getString(K_ALLOWED_APPS, "[]") ?: "[]",
             accentColor = p.getString(K_ACCENT_COLOR, "") ?: "",
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
             customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
@@ -333,6 +340,7 @@ object AppSettings {
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
             .putString(K_CALENDAR_MODE, next.calendarMode)
             .putLong(K_DEFAULT_CALENDAR, next.defaultCalendarId)
+            .putString(K_ALLOWED_APPS, next.allowedApps)
             .putString(K_ACCENT_COLOR, next.accentColor)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
             .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
@@ -545,5 +553,22 @@ object AppSettings {
     /** Save/replace the key of one provider without touching the others. */
     fun setApiKey(providerId: String, key: String) = update {
         it.copy(apiKeys = it.apiKeys + (providerId to key.trim()))
+    }
+
+    // ------------------------------------------------------ app whitelist
+
+    /** Allowed packages for open_app; empty = all apps allowed. */
+    fun allowedAppList(): List<String> = try {
+        val arr = org.json.JSONArray(_config.value.allowedApps)
+        (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+    } catch (e: Exception) { emptyList() }
+
+    fun toggleAllowedApp(pkg: String) {
+        val cur = allowedAppList().toMutableList()
+        val i = cur.indexOf(pkg)
+        if (i >= 0) cur.removeAt(i) else cur.add(pkg)
+        val arr = org.json.JSONArray()
+        cur.forEach { arr.put(it) }
+        update { it.copy(allowedApps = arr.toString()) }
     }
 }

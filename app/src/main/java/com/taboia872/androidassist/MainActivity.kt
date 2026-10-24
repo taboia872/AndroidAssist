@@ -33,14 +33,28 @@ class MainActivity : ComponentActivity() {
         AppSettings.init(this)
         ChatSessions.init(this)
         TtsManager.init(this, AppSettings.config.value.ttsLanguage)
-        // Heads-up notifications for backgrounded model answers (API 33+)
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        // Permissions asked once up front (assistant must be hands-free later):
+        // notifications (background answers, API 33+), calendar (direct event
+        // save), location (get_location tool for transit questions).
+        val wanted = buildList {
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) add(android.Manifest.permission.POST_NOTIFICATIONS)
+            if (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) add(android.Manifest.permission.READ_CALENDAR)
+            if (checkSelfPermission(android.Manifest.permission.WRITE_CALENDAR) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) add(android.Manifest.permission.WRITE_CALENDAR)
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (wanted.isNotEmpty()) {
             registerForActivityResult(
-                androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-            ) {}.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+            ) {}.launch(wanted.toTypedArray())
         }
         enableEdgeToEdge()
         setContent {
@@ -56,11 +70,15 @@ class MainActivity : ComponentActivity() {
                         onChatSelected = { chatId ->
                             resumeChatId = chatId
                             screen = "chat"
+                            // Consume after load: returning from Settings later
+                            // must NOT reload this old chat over the current one
+                            // (the "chat resumed another conversation" bug).
                         },
                         onBack = { screen = "chat" }
                     )
                     else -> ChatScreen(
                         resumeChatId = resumeChatId,
+                        onConsumeResumeId = { resumeChatId = null },
                         onOpenSettings = { screen = "settings" },
                         onOpenHistory = { screen = "history" }
                     )

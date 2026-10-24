@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
@@ -167,6 +168,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAccentDialog by remember { mutableStateOf(false) }
     var showCalendarDialog by remember { mutableStateOf(false) }
+    var showAppWhitelistDialog by remember { mutableStateOf(false) }
     var showCalendarModeDialog by remember { mutableStateOf(false) }
     var calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -486,11 +488,23 @@ fun SettingsScreen(onBack: () -> Unit) {
                             else Strings.t(Strings.calendarModeConfirm),
                             onClick = { showCalendarModeDialog = true }
                         )
+                        SettingsItem(
+                            icon = Icons.Default.Apps,
+                            title = Strings.t(Strings.allowedAppsLabel),
+                            subtitle = cfg.allowedApps.let {
+                                try {
+                                    val arr = org.json.JSONArray(it)
+                                    if (arr.length() == 0) Strings.t(Strings.allowedAppsAll)
+                                    else "${arr.length()} " + Strings.t(Strings.allowedAppsCount)
+                                } catch (e: Exception) { Strings.t(Strings.allowedAppsAll) }
+                            },
+                            onClick = { showAppWhitelistDialog = true }
+                        )
                         if (cfg.calendarMode == "direct") {
                             SettingsItem(
                                 icon = Icons.Default.Event,
                                 title = Strings.t(Strings.defaultCalendarLabel),
-                                subtitle = currentCalendarName(cfg.defaultCalendarId, calendarsList),
+                                subtitle = currentCalendarName(context, cfg.defaultCalendarId, calendarsList),
                                 onClick = {
                                     // Need permission to list calendars; ask then refresh
                                     val perms = arrayOf(
@@ -856,6 +870,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showLanguageDialog = false
             },
             onDismiss = { showLanguageDialog = false }
+        )
+    }
+
+    if (showAppWhitelistDialog) {
+        AppWhitelistDialog(
+            onDismiss = { showAppWhitelistDialog = false }
         )
     }
 
@@ -3039,10 +3059,36 @@ private fun listSystemCalendars(context: android.content.Context): List<Pair<Lon
     }
 }
 
-/** Name of the picked calendar id (lookup + fallback). */
-private fun currentCalendarName(id: Long, known: List<Pair<Long, String>>): String {
-    return known.firstOrNull { it.first == id }?.second
-        ?: if (id > 0) "id $id" else Strings.t(Strings.pickCalendar)
+/**
+ * Name of the picked calendar id. The remembered list is empty right after
+ * re-entering Settings (the "id 1" label bug) — query the provider directly
+ * when permission is granted, fallback to the list, then to a hint.
+ */
+private fun currentCalendarName(
+    context: android.content.Context,
+    id: Long,
+    known: List<Pair<Long, String>>
+): String {
+    if (id <= 0) return Strings.t(Strings.pickCalendar)
+    known.firstOrNull { it.first == id }?.let { return it.second }
+    if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) {
+        try {
+            val uri = android.provider.CalendarContract.Calendars.CONTENT_URI
+            context.contentResolver.query(
+                uri,
+                arrayOf(android.provider.CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
+                "${android.provider.CalendarContract.Calendars._ID} = ?",
+                arrayOf(id.toString()),
+                null
+            )?.use { c ->
+                if (c.moveToFirst() && !c.getString(0).isNullOrBlank()) return c.getString(0)
+            }
+        } catch (e: Exception) {
+        }
+    }
+    return "id $id"
 }
 
 /** System-calendar picker (direct-save mode). */
@@ -3130,4 +3176,103 @@ private fun CalendarModeDialog(
             TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
         }
     )
+}
+
+/**
+ * open_app whitelist: every launchable app with a star switch. Unstarred-
+ * empty list = allow ALL (default); starring any app switches to allow-list
+ * mode where only starred apps can be opened by the model.
+ */
+@Composable
+private fun AppWhitelistDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var apps by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var allowed by remember { mutableStateOf(AppSettings.allowedAppList()) }
+    var query by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val pm = context.packageManager
+        val mainIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val list = pm.queryIntentActivities(mainIntent, 0)
+            .mapNotNull { ri ->
+                try {
+                    (ri.activityInfo.packageName to ri.loadLabel(pm).toString())
+                } catch (e: Exception) { null }
+            }
+            .distinctBy { it.first }
+            .sortedBy { it.second.lowercase() }
+        apps = list
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column {
+                TopAppBar(
+                    title = { Text(Strings.t(Strings.allowedAppsLabel)) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, Strings.t(Strings.close))
+                        }
+                    }
+                )
+                Text(
+                    Strings.t(Strings.allowedAppsHint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text(Strings.t(Strings.filterByName)) },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp)
+                )
+                val q = query.trim().lowercase()
+                val visible = if (q.isEmpty()) apps
+                else apps.filter { it.second.lowercase().contains(q) || it.first.lowercase().contains(q) }
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(visible) { (pkg, label) ->
+                        ListItem(
+                            headlineContent = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text(pkg, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            trailingContent = {
+                                IconButton(onClick = {
+                                    AppSettings.toggleAllowedApp(pkg)
+                                    allowed = AppSettings.allowedAppList()
+                                }, modifier = Modifier.size(32.dp)) {
+                                    Icon(
+                                        if (allowed.contains(pkg)) Icons.Default.Star else Icons.Default.StarBorder,
+                                        if (allowed.contains(pkg)) Strings.t(Strings.favorite)
+                                        else Strings.t(Strings.unfavorite),
+                                        tint = if (allowed.contains(pkg)) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.clickable {
+                                AppSettings.toggleAllowedApp(pkg)
+                                allowed = AppSettings.allowedAppList()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
