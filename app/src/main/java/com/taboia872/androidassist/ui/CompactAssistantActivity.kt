@@ -281,6 +281,9 @@ private fun CompactAssistantSheet(
     val scrollState = rememberScrollState()
     // Streaming height snapshot (anti-flicker): grows only, reset per turn
     var sheetTextHeight by remember { mutableStateOf(0.dp) }
+    // Density captured in composition (LocalDensity.current is not readable
+    // inside onSizeChanged's non-composable callback).
+    val density = LocalDensity.current
 
     val lastUser = session.messages.lastOrNull { it.role == "user" }
     val lastAssistant = session.messages.lastOrNull { it.role == "assistant" }
@@ -396,7 +399,7 @@ private fun CompactAssistantSheet(
                                 .onSizeChanged { size ->
                                     // grow-only during a turn: never shrink mid-stream
                                     if (session.busy) {
-                                        val h = with(LocalDensity.current) { size.height.toDp() }
+                                        val h = with(density) { size.height.toDp() }
                                         if (h > sheetTextHeight) sheetTextHeight = h
                                     } else {
                                         sheetTextHeight = 0.dp
