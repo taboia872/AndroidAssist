@@ -70,6 +70,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
@@ -277,6 +279,8 @@ private fun CompactAssistantSheet(
     var input by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    // Streaming height snapshot (anti-flicker): grows only, reset per turn
+    var sheetTextHeight by remember { mutableStateOf(0.dp) }
 
     val lastUser = session.messages.lastOrNull { it.role == "user" }
     val lastAssistant = session.messages.lastOrNull { it.role == "assistant" }
@@ -369,17 +373,35 @@ private fun CompactAssistantSheet(
 
                     if (hasContent) {
                         Spacer(modifier = Modifier.height(12.dp))
+                        // FIXED HEIGHT while the model streams: the sheet used to
+                        // grow/shrink on every token (the flicker report). We
+                        // snapshot the content height once per turn and hold
+                        // it until the turn ends.
+                        val targetHeight = if (session.busy) {
+                            sheetTextHeight.coerceAtLeast(80.dp).coerceAtMost(responseMaxHeight)
+                        } else {
+                            responseMaxHeight
+                        }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f, fill = false)
-                                .heightIn(max = responseMaxHeight)
+                                .heightIn(max = targetHeight)
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                 )
                                 .padding(14.dp)
                                 .verticalScroll(scrollState)
+                                .onSizeChanged { size ->
+                                    // grow-only during a turn: never shrink mid-stream
+                                    if (session.busy) {
+                                        val h = with(LocalDensity.current) { size.height.toDp() }
+                                        if (h > sheetTextHeight) sheetTextHeight = h
+                                    } else {
+                                        sheetTextHeight = 0.dp
+                                    }
+                                }
                         ) {
                             lastUser?.let {
                                 Text(

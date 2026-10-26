@@ -53,7 +53,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -1536,6 +1535,7 @@ private fun ModelSelectionDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var showCustomInput by remember { mutableStateOf(false) }
+    var sortBy by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
     fun load(force: Boolean) {
@@ -1605,6 +1605,30 @@ private fun ModelSelectionDialog(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp)
                 )
+                // Sort: alphabetical | context | capability
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = sortBy == 0,
+                        onClick = { sortBy = 0 },
+                        label = { Text(Strings.t(Strings.sortByName)) }
+                    )
+                    FilterChip(
+                        selected = sortBy == 1,
+                        onClick = { sortBy = 1 },
+                        label = { Text(Strings.t(Strings.sortByContext)) }
+                    )
+                    FilterChip(
+                        selected = sortBy == 2,
+                        onClick = { sortBy = 2 },
+                        label = { Text(Strings.t(Strings.sortByCapability)) }
+                    )
+                }
 
                 when {
                     loading -> Box(
@@ -1666,8 +1690,17 @@ private fun ModelSelectionDialog(
                         else all.filter {
                             it.id.lowercase().contains(q) || it.name.lowercase().contains(q)
                         }
+                        // Sort modes: name, context size, capability score
+                        val sorted = when (sortBy) {
+                            1 -> filtered.sortedByDescending { it.contextLength }
+                            2 -> filtered.sortedWith(
+                                compareByDescending<ModelInfo> { it.capabilityScore }
+                                    .thenByDescending { it.contextLength }
+                            )
+                            else -> filtered.sortedBy { it.name.lowercase() }
+                        }
 
-                        if (filtered.isEmpty()) {
+                        if (sorted.isEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1684,59 +1717,17 @@ private fun ModelSelectionDialog(
                             }
                         } else {
                             LazyColumn(modifier = Modifier.weight(1f)) {
-                                val freeModels = filtered.filter { it.isFree }
-                                val premiumModels = filtered.filter { !it.isFree }
-
-                                if (freeModels.isNotEmpty()) {
-                                    item {
-                                        Text(
-                                            Strings.t(Strings.freeModels),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(
-                                                start = 16.dp, end = 16.dp, top = 8.dp
-                                            )
-                                        )
-                                    }
-                                    items(freeModels) { model ->
-                                        ModelItem(
-                                            model = model,
-                                            isSelected = model.id == currentModel,
-                                            onClick = { onModelSelected(model.id) }
-                                        )
-                                    }
-                                }
-                                if (premiumModels.isNotEmpty()) {
-                                    item {
-                                        Text(
-                                            if (freeModels.isNotEmpty()) Strings.t(Strings.premiumModels)
-                                            else Strings.t(Strings.availableModels),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(
-                                                start = 16.dp, end = 16.dp, top = 8.dp
-                                            )
-                                        )
-                                    }
-                                    items(premiumModels) { model ->
-                                        ModelItem(
-                                            model = model,
-                                            isSelected = model.id == currentModel,
-                                            onClick = { onModelSelected(model.id) }
-                                        )
-                                    }
-                                }
-
-                                item {
-                                    Text(
-                                        Strings.t(Strings.manual),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(
-                                            start = 16.dp, end = 16.dp, top = 8.dp
-                                        )
+                                // ONE flat uniform list, sort applied — free/premium
+                                // only matters on OpenRouter and is already part
+                                // of each model's capability line.
+                                items(sorted) { model ->
+                                    ModelItem(
+                                        model = model,
+                                        isSelected = model.id == currentModel,
+                                        onClick = { onModelSelected(model.id) }
                                     )
                                 }
+
                                 item {
                                     ListItem(
                                         headlineContent = {
@@ -1785,6 +1776,10 @@ private fun ModelSelectionDialog(
     }
 }
 
+/**
+ * Compact model row: name + one uniform capability line (context, vision,
+ * audio, price-when-OpenRouter). No icon chips — dense list (user request).
+ */
 @Composable
 private fun ModelItem(
     model: ModelInfo,
@@ -1796,36 +1791,19 @@ private fun ModelItem(
             Text(
                 model.name,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         },
         supportingContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(model.id, style = MaterialTheme.typography.bodySmall)
-                Text(model.description)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (model.isFree) {
-                        AssistChip(
-                            onClick = {},
-                            enabled = false,
-                            label = { Text(Strings.t(Strings.free)) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Savings, null, modifier = Modifier.size(14.dp))
-                            }
-                        )
-                    }
-                    if (model.supportsVision) {
-                        AssistChip(
-                            onClick = {},
-                            enabled = false,
-                            label = { Text(Strings.t(Strings.vision)) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(14.dp))
-                            }
-                        )
-                    }
-                }
-            }
+            Text(
+                model.desc.ifBlank { model.id },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         },
         leadingContent = {
             RadioButton(selected = isSelected, onClick = onClick)
@@ -1835,7 +1813,7 @@ private fun ModelItem(
             else MaterialTheme.colorScheme.surface
         ),
         modifier = Modifier
-            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .padding(horizontal = 12.dp, vertical = 1.dp)
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
     )

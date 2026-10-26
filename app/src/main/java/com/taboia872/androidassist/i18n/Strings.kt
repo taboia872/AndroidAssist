@@ -263,6 +263,9 @@ object Strings {
     const val allowedAppsAll = "All apps allowed"
     const val allowedAppsCount = "apps allowed"
     const val allowedAppsHint = "Star the apps the assistant may open. Empty list = all apps allowed; star any app to switch to allow-list mode."
+    const val sortByName = "A-Z"
+    const val sortByContext = "Context"
+    const val sortByCapability = "Capabilities"
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
@@ -317,8 +320,8 @@ object Strings {
         noModel -> "sem modelo"
 
         aiTab -> "Modelo"
-        voiceTab -> "Captura de voz"
-        outputTab -> "Saída de voz"
+        voiceTab -> "Entrada"
+        outputTab -> "Saída"
         systemTab -> "Sistema"
 
         apiConfig -> "Configuração de API"
@@ -527,6 +530,9 @@ object Strings {
         allowedAppsAll -> "Todos os apps permitidos"
         allowedAppsCount -> "apps permitidos"
         allowedAppsHint -> "Favorite os apps que o assistente pode abrir. Lista vazia = todos permitidos; marque qualquer app para ativar o modo lista de permissão."
+        sortByName -> "A-Z"
+        sortByContext -> "Contexto"
+        sortByCapability -> "Capacidades"
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
 

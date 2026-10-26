@@ -5,22 +5,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
+/**
+ * One model with STRUCTURED capabilities — the UI renders a compact single
+ * line ("128K · vision · audio-in") and sorts by context or capability.
+ */
 data class ModelInfo(
     val id: String,
     val name: String,
-    val description: String,
+    /** Short one-line capability summary, provider-agnostic. */
+    val desc: String,
     val supportsVision: Boolean,
-    val isFree: Boolean
+    val isFree: Boolean,
+    val contextLength: Int = 0,
+    val audioIn: Boolean = false,
+    val audioOut: Boolean = false,
+    val imageGen: Boolean = false,
+    /** Ranking hint: more capabilities = higher score. */
+    val capabilityScore: Int = 0
 )
 
 /**
  * Live model catalog from any OpenAI-compatible GET /models endpoint.
- * 5-minute in-memory cache per (baseUrl, apiKey). Metadata (context, vision,
- * pricing) is parsed when the server provides it — OpenRouter is rich, Groq
- * gives context, self-hosted Ollama usually only ids.
+ * 5-minute in-memory cache per (baseUrl, apiKey).
+ *
+ * UNIFORM RENDERING across providers (user request): every model shows
+ * context size and capability tags (vision / audio-in / audio-out /
+ * image-gen / omni) parsed from whatever shape the server gives —
+ * OpenRouter nests under architecture/top_provider, Groq exposes
+ * input_modalities/output_modalities, Ollama usually only ids.
+ * Pricing shows ONLY on OpenRouter (the single provider where free/paid
+ * coexist meaningfully for the user).
  */
 object ModelCatalog {
 
@@ -54,8 +69,6 @@ object ModelCatalog {
             cached(url, apiKey)?.let { return@withContext Result.success(it) }
         }
         runCatching {
-            // HttpURLConnection (not Https): custom endpoints may be plain
-            // http, e.g. Ollama on http://192.168.0.10:11434/v1
             val conn = Net.open("$url/models").apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
@@ -67,7 +80,7 @@ object ModelCatalog {
                 if (conn.responseCode != 200) {
                     throw RuntimeException("HTTP ${conn.responseCode}")
                 }
-                val models = parse(conn.inputStream.bufferedReader().readText())
+                val models = parse(conn.inputStream.bufferedReader().readText(), url)
                 if (models.isEmpty()) throw RuntimeException("Server returned no models")
                 cache = Cached(url, apiKey, models, System.currentTimeMillis())
                 models
@@ -77,12 +90,30 @@ object ModelCatalog {
         }
     }
 
+    private fun JSONArray?.strings(): List<String> {
+        if (this == null) return emptyList()
+        return (0 until length()).map { optString(it) }.filter { it.isNotBlank() }
+    }
+
+    private fun JSONObject?.strList(vararg keys: String): List<String> {
+        if (this == null) return emptyList()
+        for (k in keys) {
+            val arr = optJSONArray(k) ?: continue
+            return arr.strings()
+        }
+        return emptyList()
+    }
+
     /**
      * Map a /models JSON body onto ModelInfo. Field shapes differ per
-     * provider: OpenRouter nests context under top_provider and has pricing;
-     * Groq uses a top-level context_window; plain Ollama/LM Studio only ids.
+     * provider — everything is normalized into the same compact line.
      */
-    fun parse(body: String): List<ModelInfo> {
+    fun parse(body: String, baseUrl: String = ""): List<ModelInfo> {
+        // Provider identity comes from the BASE URL — never from the model id:
+        // Groq ids now look like "openai/gpt-oss-120b" and were being
+        // mistaken for OpenRouter (pricing leaked back into the list).
+        val isOpenRouter = baseUrl.contains("openrouter", ignoreCase = true)
+
         val data: JSONArray = JSONObject(body).optJSONArray("data") ?: JSONArray()
         val out = ArrayList<ModelInfo>(data.length())
         for (i in 0 until data.length()) {
@@ -91,67 +122,65 @@ object ModelCatalog {
             if (id.isEmpty()) continue
 
             val name = m.optString("name", "").ifEmpty { id }
-            // Vision detection across provider shapes: OpenRouter nests it in
-            // architecture.modality; others expose top-level modality or
-            // capabilities. Groq free models (e.g. qwen vision) were getting
-            // no Vision badge because only the OpenRouter shape was checked.
-            val modality = m.optJSONObject("architecture")?.optString("modality")
-                ?: m.optString("modality", "")
-            val supportsVision = modality.contains("image") ||
-                m.optJSONObject("capabilities")?.let { caps ->
-                    caps.optString("vision", "") == "true" ||
-                        caps.has("input_image") ||
-                        caps.optJSONArray("input_modalities")?.let {
-                            (0 until it.length()).any { k -> it.optString(k) == "image" }
-                        } == true
-                } == true ||
-                m.optJSONArray("input_modalities")?.let {
-                    (0 until it.length()).any { k -> it.optString(k) == "image" }
-                } == true
+
+            // --- modalities across provider shapes ---
+            val arch = m.optJSONObject("architecture")
+            val inMods = m.strList("input_modalities").ifEmpty { arch.strList("input_modalities") }
+            val outMods = m.strList("output_modalities").ifEmpty { arch.strList("output_modalities") }
+            val capsObj = m.optJSONObject("capabilities")
+            val supportsVision = inMods.any { it.equals("image", true) } ||
+                (capsObj != null && (capsObj.optString("vision") == "true" || capsObj.has("input_image")))
+
+            val audioIn = inMods.any { it.equals("audio", true) }
+            val audioOut = outMods.any { it.equals("audio", true) }
+            val imageGen = outMods.any { it.equals("image", true) }
+            val omni = supportsVision && audioIn && audioOut
 
             val contextLength = m.optJSONObject("top_provider")?.optInt("context_length", 0)
                 ?: m.optInt("context_window", 0)
-            // Pricing matters ONLY on OpenRouter (the one provider where
-            // free/paid models coexist meaningfully). Groq is all free-tier
-            // API; Ollama/NVIDIA/custom are whatever the user runs — showing
-            // "$0.00/M tokens" there is noise (user report).
-            val isOpenRouter = id.contains("/")
+
+            // --- pricing: OpenRouter ONLY ---
             val pricing = m.optJSONObject("pricing")
             val promptPrice = pricing?.optString("prompt", "0")?.toDoubleOrNull() ?: 0.0
             val isFree = !isOpenRouter || pricing == null ||
                 id.endsWith(":free") || promptPrice == 0.0
 
-            // Capability chips (parse what the server actually gives)
-            val inputModalities = m.optJSONArray("input_modalities")
-                ?: m.optJSONObject("architecture")?.optJSONArray("input_modalities")
-            fun hasMod(s: String): Boolean {
-                val arr = inputModalities ?: return false
-                return (0 until arr.length()).any { k -> arr.optString(k) == s }
-            }
-            val supportsAudioIn = hasMod("audio")
-            val supportsAudioOut = (m.optJSONArray("output_modalities")
-                ?: m.optJSONObject("architecture")?.optJSONArray("output_modalities"))
-                ?.let { arr -> (0 until arr.length()).any { k -> arr.optString(k) == "audio" } } == true
-            val supportsImageOut = (m.optJSONArray("output_modalities")
-                ?: m.optJSONObject("architecture")?.optJSONArray("output_modalities"))
-                ?.let { arr -> (0 until arr.length()).any { k -> arr.optString(k) == "image" } } == true
-
+            // --- compact uniform line ---
             val desc = buildString {
                 if (isOpenRouter && pricing != null) {
                     if (isFree) append("Free")
-                    else append(String.format("$%.2f/M tokens", promptPrice * 1_000_000))
+                    else append(String.format("$%.2f/M", promptPrice * 1_000_000))
+                    append(" · ")
                 }
                 if (contextLength > 0) {
-                    if (isNotEmpty()) append(" · ")
-                    append(if (contextLength >= 1000) "${contextLength / 1000}K ctx" else "$contextLength ctx")
+                    append(if (contextLength >= 1000) "${contextLength / 1000}K" else "$contextLength")
+                    append(" ctx")
                 }
-                if (supportsVision) append(" · vision")
-                if (supportsAudioIn) append(" · audio-in")
-                if (supportsAudioOut) append(" · audio-out")
-                if (supportsImageOut) append(" · image-gen")
+                val tags = buildList {
+                    if (omni) add("omni") else {
+                        if (supportsVision) add("vision")
+                        if (audioIn) add("audio-in")
+                        if (audioOut) add("audio-out")
+                    }
+                    if (imageGen) add("image-gen")
+                }
+                tags.forEach { t ->
+                    if (isNotEmpty()) append(" · ")
+                    append(t)
+                }
             }
 
-            out.add(ModelInfo(id, name, desc, supportsVision, isFree))
+            val score = (if (supportsVision) 2 else 0) + (if (audioIn) 1 else 0) +
+                (if (audioOut) 1 else 0) + (if (imageGen) 2 else 0) +
+                (if (omni) 1 else 0) + (if (contextLength >= 128_000) 1 else 0)
+
+            out.add(ModelInfo(
+                id = id, name = name, desc = desc,
+                supportsVision = supportsVision, isFree = isFree,
+                contextLength = contextLength,
+                audioIn = audioIn, audioOut = audioOut, imageGen = imageGen,
+                capabilityScore = score
+            ))
         }
         return out
     }

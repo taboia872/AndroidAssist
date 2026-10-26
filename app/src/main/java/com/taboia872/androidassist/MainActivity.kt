@@ -5,14 +5,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.ui.ChatHistoryScreen
-import com.taboia872.androidassist.ui.ChatSessions
 import com.taboia872.androidassist.ui.ChatScreen
+import com.taboia872.androidassist.ui.ChatSessions
 import com.taboia872.androidassist.ui.SettingsScreen
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.tts.TtsManager
@@ -54,34 +66,71 @@ class MainActivity : ComponentActivity() {
         if (wanted.isNotEmpty()) {
             registerForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-            ) {}.launch(wanted.toTypedArray())
+            ) { }.launch(wanted.toTypedArray())
         }
         enableEdgeToEdge()
         setContent {
             var screen by remember { mutableStateOf("chat") }
             var resumeChatId by remember { mutableStateOf<String?>(null) }
+            // Swipe accumulator: right-swipe on the chat opens Settings
+            var swipeDelta by remember { mutableFloatStateOf(0f) }
             AndroidAssistTheme {
                 // Android back returns to the CHAT instead of exiting the app
                 // (user report): only exit from the chat screen itself.
                 BackHandler(enabled = screen != "chat") { screen = "chat" }
-                when (screen) {
-                    "settings" -> SettingsScreen(onBack = { screen = "chat" })
-                    "history" -> ChatHistoryScreen(
-                        onChatSelected = { chatId ->
-                            resumeChatId = chatId
-                            screen = "chat"
-                            // Consume after load: returning from Settings later
-                            // must NOT reload this old chat over the current one
-                            // (the "chat resumed another conversation" bug).
-                        },
-                        onBack = { screen = "chat" }
-                    )
-                    else -> ChatScreen(
-                        resumeChatId = resumeChatId,
-                        onConsumeResumeId = { resumeChatId = null },
-                        onOpenSettings = { screen = "settings" },
-                        onOpenHistory = { screen = "history" }
-                    )
+
+                val chatSwipeModifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(screen) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (screen == "chat" && swipeDelta > 90.dp.toPx()) {
+                                    screen = "settings"
+                                }
+                                swipeDelta = 0f
+                            }
+                        ) { change, dragAmount ->
+                            change.consume()
+                            swipeDelta += dragAmount
+                        }
+                    }
+
+                // Screen transitions: Settings slides in from the right,
+                // slides back out on close (browser-style, user request).
+                AnimatedContent(
+                    targetState = screen,
+                    transitionSpec = {
+                        if (targetState == "settings") {
+                            slideInHorizontally(tween(280)) { it } togetherWith
+                                slideOutHorizontally(tween(280)) { -it / 4 }
+                        } else {
+                            slideInHorizontally(tween(280)) { -it / 4 } togetherWith
+                                slideOutHorizontally(tween(280)) { it }
+                        }
+                    },
+                    label = "screens"
+                ) { currentScreen ->
+                    Box(modifier = if (currentScreen == "chat") chatSwipeModifier else Modifier.fillMaxSize()) {
+                        when (currentScreen) {
+                            "settings" -> SettingsScreen(onBack = { screen = "chat" })
+                            "history" -> ChatHistoryScreen(
+                                onChatSelected = { chatId ->
+                                    resumeChatId = chatId
+                                    screen = "chat"
+                                    // Consume after load: returning from Settings
+                                    // later must NOT reload this old chat over
+                                    // the current one (the resume-chat bug).
+                                },
+                                onBack = { screen = "chat" }
+                            )
+                            else -> ChatScreen(
+                                resumeChatId = resumeChatId,
+                                onConsumeResumeId = { resumeChatId = null },
+                                onOpenSettings = { screen = "settings" },
+                                onOpenHistory = { screen = "history" }
+                            )
+                        }
+                    }
                 }
             }
         }

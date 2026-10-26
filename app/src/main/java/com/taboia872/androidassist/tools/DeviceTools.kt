@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
 import android.provider.CalendarContract
+import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -402,40 +403,118 @@ object DeviceTools {
             )
         }
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
-        // Last known location: instant, no battery, privacy-friendly (no new fix)
-        val providers = listOf(
-            android.location.LocationManager.NETWORK_PROVIDER,
-            android.location.LocationManager.PASSIVE_PROVIDER,
-            android.location.LocationManager.GPS_PROVIDER
-        )
+
+        // Fresh fix request: coarse (network/cell ~100m) when fine is denied.
+        // Falls back to lastKnown when no provider answers in time.
         var best: android.location.Location? = null
-        for (p in providers) {
-            try {
-                val l = lm.getLastKnownLocation(p) ?: continue
-                if (best == null || l.time > best!!.time) best = l
-            } catch (e: SecurityException) {
-            } catch (e: IllegalArgumentException) {
+        try {
+            val future = java.util.concurrent.CompletableFuture<android.location.Location?>()
+            val listener = android.location.LocationListener { l ->
+                future.complete(l)
+            }
+            val provider = when {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) &&
+                    context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED ->
+                    android.location.LocationManager.GPS_PROVIDER
+                lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) ->
+                    android.location.LocationManager.NETWORK_PROVIDER
+                lm.isProviderEnabled(android.location.LocationManager.PASSIVE_PROVIDER) ->
+                    android.location.LocationManager.PASSIVE_PROVIDER
+                else -> null
+            }
+            if (provider != null) {
+                lm.requestLocationUpdates(provider, 0L, 0f, listener,
+                    context.mainLooper)
+                try {
+                    best = future.get(12, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                } finally {
+                    lm.removeUpdates(listener)
+                }
+            }
+        } catch (e: SecurityException) {
+        } catch (e: Exception) {
+        }
+
+        // fallback: most recent lastKnown across providers
+        if (best == null) {
+            for (p in listOf(
+                android.location.LocationManager.NETWORK_PROVIDER,
+                android.location.LocationManager.PASSIVE_PROVIDER,
+                android.location.LocationManager.GPS_PROVIDER
+            )) {
+                try {
+                    val l = lm.getLastKnownLocation(p) ?: continue
+                    if (best == null || l.time > best!!.time) best = l
+                } catch (e: SecurityException) {
+                } catch (e: IllegalArgumentException) {
+                }
             }
         }
-        return if (best == null) {
-            Result(
+
+        if (best == null) {
+            return Result(
                 true, "\ud83d\udccd sem fix",
-                "No last-known location available yet. Ask the user to open a map " +
-                    "app once so the system caches a position, or enable location.",
-                "location"
-            )
-        } else {
-            val lat = best!!.latitude
-            val lon = best!!.longitude
-            val acc = best!!.accuracy.toInt()
-            Result(
-                true, "\ud83d\udccd ${"%.4f".format(lat)}, ${"%.4f".format(lon)} (~${acc}m)",
-                "Approximate location: latitude $lat, longitude $lon, accuracy ~${acc}m. " +
-                    "Use these coordinates for local searches (transit stops, nearby places). " +
-                    "Do not reveal exact coordinates to the user unless asked.",
+                "No location available. Ask the user to enable location and try again.",
                 "location"
             )
         }
+
+        val lat = best!!.latitude
+        val lon = best!!.longitude
+        val acc = best!!.accuracy.toInt()
+
+        // Reverse geocode via Nominatim (OpenStreetMap — no key, no Google,
+        // matches the user's privacy choice of Organic Maps). One request.
+        var place = ""
+        try {
+            val url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2" +
+                "&lat=$lat&lon=$lon&zoom=16&accept-language=pt-BR"
+            val conn = Net.open(url).apply {
+                requestMethod = "GET"
+                connectTimeout = 5_000
+                readTimeout = 8_000
+                setRequestProperty("User-Agent", "AndroidAssist/0.1 (personal assistant app)")
+            }
+            try {
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val addr = org.json.JSONObject(body).optJSONObject("address")
+                    if (addr != null) {
+                        val road = addr.optString("road", "")
+                        val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
+                        val city = addr.optString("city", addr.optString("town",
+                            addr.optString("village", addr.optString("county", ""))))
+                        val state = addr.optString("state", "")
+                        place = listOf(road, suburb, city, state)
+                            .filter { it.isNotBlank() }
+                            .joinToString(", ")
+                    }
+                }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+        }
+
+        val header = if (place.isNotBlank())
+            "\ud83d\udccd ${place.take(40)}"
+        else
+            "\ud83d\udccd ${"%.4f".format(lat)}, ${"%.4f".format(lon)} (~${acc}m)"
+
+        val detail = buildString {
+            append("The user's approximate location: ")
+            if (place.isNotBlank()) {
+                append("near '$place' (this is the street/neighbourhood/city from OpenStreetMap). ")
+            }
+            append("Coordinates latitude $lat, longitude $lon, accuracy ~${acc}m. ")
+            append("Use this for local questions: transit stops and schedules, ")
+            append("nearby places, distances. When answering, mention the place ")
+            append("name, not the raw coordinates.")
+        }
+
+        return Result(true, header, detail, "location")
     }
 
     /** Open a point in the user's map app (geo: URI — Organic Maps, OsmAnd...). */

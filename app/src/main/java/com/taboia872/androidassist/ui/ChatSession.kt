@@ -286,7 +286,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     // timer, calendar, open app, clipboard, share).
                     val c = ctx
                     val res = if (c != null) {
-                        DeviceTools.execute(c, toolName, pendingToolArgs)
+                        // IO dispatcher: get_location waits for a GPS/network
+                        // fix (seconds) and reverse-geocodes over HTTP —
+                        // must not block the main thread.
+                        withContext(Dispatchers.IO) {
+                            DeviceTools.execute(c, toolName, pendingToolArgs)
+                        }
                     } else {
                         DeviceTools.Result(
                             false, toolName,
