@@ -25,9 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
@@ -218,9 +217,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                         // it is clearly horizontal, so VERTICAL scrolling of the
                         // settings list and horizontal rows inside (chips, etc.)
                         // are not hijacked.
-                        androidx.compose.ui.input.pointer.awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            var dx = 0f
+                        awaitEachGesture {
+                                                    var dx = 0f
                             var dy = 0f
                             var horizontal = false
                             var claimed = false
