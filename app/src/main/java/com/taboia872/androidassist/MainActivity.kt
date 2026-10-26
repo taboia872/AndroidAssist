@@ -95,17 +95,23 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                // Screen transitions: Settings slides in from the right,
-                // slides back out on close (browser-style, user request).
+                // Screen transitions: the Settings panel FOLLOWS THE FINGER.
+                // Swipe left->right pulls the panel IN FROM THE LEFT; closing
+                // pushes it back out to the left (fixes the inverted feel —
+                // user report: settings were entering from the right).
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
                         if (targetState == "settings") {
-                            slideInHorizontally(tween(280)) { it } togetherWith
-                                slideOutHorizontally(tween(280)) { -it / 4 }
+                            // open: settings enter from the LEFT moving right;
+                            // the chat is pushed a quarter to the RIGHT
+                            slideInHorizontally(tween(280)) { -it } togetherWith
+                                slideOutHorizontally(tween(280)) { it / 4 }
                         } else {
-                            slideInHorizontally(tween(280)) { -it / 4 } togetherWith
-                                slideOutHorizontally(tween(280)) { it }
+                            // close: settings return to the LEFT edge;
+                            // the chat comes back from the right
+                            slideInHorizontally(tween(280)) { it / 4 } togetherWith
+                                slideOutHorizontally(tween(280)) { -it }
                         }
                     },
                     label = "screens"

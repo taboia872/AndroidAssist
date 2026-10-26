@@ -25,6 +25,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -208,6 +213,47 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(settingsScrollState)
+                    .pointerInput(settingsCategory) {
+                        // Horizontal-first detection: only claim the gesture when
+                        // it is clearly horizontal, so VERTICAL scrolling of the
+                        // settings list and horizontal rows inside (chips, etc.)
+                        // are not hijacked.
+                        androidx.compose.ui.input.pointer.awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            var dx = 0f
+                            var dy = 0f
+                            var horizontal = false
+                            var claimed = false
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                dx += change.positionChange().x
+                                dy += change.positionChange().y
+                                if (!claimed) {
+                                    if (kotlin.math.abs(dx) > 40.dp.toPx() &&
+                                        kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f
+                                    ) {
+                                        horizontal = true
+                                        claimed = true
+                                    } else if (kotlin.math.abs(dy) > 40.dp.toPx()) {
+                                        break
+                                    }
+                                }
+                                if (claimed) change.consume()
+                            } while (event.changes.any { it.pressed })
+                            if (horizontal) {
+                                val idx = SettingsCategory.entries.indexOf(settingsCategory)
+                                val threshold = 90.dp.toPx()
+                                if (dx < -threshold && idx < SettingsCategory.entries.size - 1) {
+                                    settingsCategoryName =
+                                        SettingsCategory.entries[idx + 1].name
+                                } else if (dx > threshold && idx > 0) {
+                                    settingsCategoryName =
+                                        SettingsCategory.entries[idx - 1].name
+                                }
+                            }
+                        }
+                    }
                     .padding(bottom = 20.dp)
             ) {
                 SettingsOverviewCard(
