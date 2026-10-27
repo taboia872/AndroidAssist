@@ -8,6 +8,7 @@ Assistente Android nativo em Kotlin/Compose — chat multi-provider com voz, bus
 - **Streaming completo** — tokens ao vivo, blocos de pensamento colapsáveis, blocos de ferramenta com resultados da busca, respostas agênticas em múltiplas rodadas
 - **Markdown real** — tabelas GFM, code blocks com botão de copiar, listas, headers (lib [multiplatform-markdown-renderer](https://github.com/mikepenz/multiplatform-markdown-renderer))
 - **Busca web** (function calling) — DuckDuckGo (sem chave), Parallel MCP (sem chave), Brave, Exa, LangSearch, Jina Reader; parâmetros: nº de resultados, região, recenticidade
+- **Ferramentas do celular** (function calling local) — alarme, timer, evento no calendário (salvamento direto com escolha de calendário ou confirmação no app), abrir apps (com whitelist), área de transferência, compartilhar, localização aproximada (fix fresco + reverse geocode via OpenStreetMap, sem Google), abrir no mapa (geo: URI — Organic Maps/OsmAnd compatíveis)
 - **Voz** — STT: reconhecedor do sistema ou Groq Whisper; TTS: motor do sistema ou FishAudio; idiomas de captura e síntese independentes
 - **Assistente do sistema** — responde ao gesto do assistente com overlay "bloquinho", auto-start de escuta
 - **Temas** — sistema (teal), dinâmico (Material You), claro, escuro + cor de destaque
