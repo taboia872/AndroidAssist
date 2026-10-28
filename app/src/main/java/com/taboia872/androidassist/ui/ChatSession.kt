@@ -12,6 +12,7 @@ import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
 import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.search.SearchOutcome
+import com.taboia872.androidassist.memory.MemoryStore
 import com.taboia872.androidassist.tools.DeviceTools
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
@@ -227,6 +228,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 basePrompt += "\n\nDo NOT produce any reasoning or thinking " +
                     "process; answer directly and concisely."
             }
+            // Persistent memories (core instructions + preferences) ride the
+            // system prompt; facts/skills stay retrievable via search_memories.
+            val appCtx = ctx ?: context0
+            if (appCtx != null) {
+                basePrompt += MemoryStore.promptBlock(appCtx)
+            }
 
             // Snapshot BEFORE the turn streams: every round replays the same
             // conversation + ALL completed tool exchanges (multi-search loop).
@@ -281,6 +288,66 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     }
                     toolHeader = "\ud83d\udd0d $searchQuery"
                     addBlock("tool", toolHeader, detailForUser)
+                } else if (toolName == "save_memory" || toolName == "search_memories" ||
+                    toolName == "forget_memory") {
+                    // MEMORY TOOLS: local storage — no device Intent.
+                    val c = ctx
+                    if (c != null) {
+                        val argsObj = try {
+                            org.json.JSONObject(pendingToolArgs)
+                        } catch (e: Exception) { org.json.JSONObject() }
+                        when (toolName) {
+                            "save_memory" -> {
+                                val kind = argsObj.optString("kind", "fact")
+                                val text = argsObj.optString("text", "")
+                                val mem = withContext(Dispatchers.IO) {
+                                    MemoryStore.add(c, kind, text, source = "model")
+                                }
+                                toolHeader = "\ud83d\udcae " + mem.kind + ": " + mem.text.take(60)
+                                toolResult = "Memory saved (kind=" + mem.kind + "): '" +
+                                    mem.text + "'. Apply " +
+                                    (if (mem.kind == "core") "this instruction from NOW ON in every reply"
+                                     else "this when relevant") + "."
+                                addBlock("tool", toolHeader, "")
+                                android.widget.Toast.makeText(
+                                    c,
+                                    "\ud83d\udcae " + com.taboia872.androidassist.i18n.Strings.t(
+                                        com.taboia872.androidassist.i18n.Strings.memorySavedToast
+                                    ) + " " + mem.text.take(80),
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            "search_memories" -> {
+                                val q0 = argsObj.optString("query", "")
+                                val hits = withContext(Dispatchers.IO) {
+                                    MemoryStore.search(c, q0)
+                                }
+                                toolHeader = "\ud83d\udd0e " + q0.ifBlank { "\u2026" }
+                                toolResult = if (hits.isEmpty()) {
+                                    "No memories match '" + q0 + "'."
+                                } else {
+                                    "Memories found:\n" + hits.joinToString("\n") {
+                                        "[" + it.kind + "] " + it.text + " (id " + it.id + ")"
+                                    }
+                                }
+                                addBlock("tool", toolHeader, toolResult)
+                            }
+                            "forget_memory" -> {
+                                val target = argsObj.optString("id_or_text", "")
+                                val gone = withContext(Dispatchers.IO) {
+                                    MemoryStore.forget(c, target)
+                                }
+                                toolHeader = "\ud83e\udde9 " + target.take(60)
+                                toolResult = if (gone) "Memory deleted: '" + target + "'."
+                                else "No memory matched '" + target + "' — nothing deleted."
+                                addBlock("tool", toolHeader, "")
+                            }
+                        }
+                    } else {
+                        toolHeader = toolName
+                        toolResult = "Cannot access memories in this context."
+                        addBlock("tool", toolHeader, "")
+                    }
                 } else {
                     // DEVICE TOOL: executed locally via Android Intents (alarm,
                     // timer, calendar, open app, clipboard, share).

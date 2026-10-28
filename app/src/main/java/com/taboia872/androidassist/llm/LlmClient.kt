@@ -165,6 +165,25 @@ object LlmClient {
                 "longitude" to ("number" to "Longitude of the point"),
                 "label" to ("string" to "Short place label shown on the map pin")
             )
+        ),
+        tool(
+            "save_memory",
+            "Save a lasting memory about the user. ONLY for durable information: standing instructions (kind=core: how you must behave with this user), explicit tastes/preferences expressed as SHORT phrases (kind=preference), or stable world facts (kind=fact: numbers, names, schedules, addresses). NEVER save task content, transient state or anything the user asked you to just do once. Check the wording with the user's own phrasing. At most ONE save per turn.",
+            "text" to "The memory content, short and self-contained",
+            required = listOf("text"),
+            extraProps = mapOf(
+                "kind" to ("string" to "core | preference | fact — core=standing instruction, preference=short user taste, fact=stable world fact")
+            )
+        ),
+        tool(
+            "search_memories",
+            "Search the user's saved memories (facts and skills you cannot see in the prompt). ALWAYS call this when the question involves personal facts (bus lines, contacts, schedules, addresses) or when the user mentions doing a routine you may have stored.",
+            "query" to "What to look for (keywords or a short question)"
+        ),
+        tool(
+            "forget_memory",
+            "Delete a memory that is wrong or outdated (user said to forget something, or you found a contradiction). Provide the id or the exact/recognizable text.",
+            "id_or_text" to "Memory id or the text (or distinctive part) to delete"
         )
     )
 

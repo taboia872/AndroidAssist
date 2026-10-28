@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VolumeUp
@@ -172,6 +173,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showAccentDialog by remember { mutableStateOf(false) }
     var showCalendarDialog by remember { mutableStateOf(false) }
     var showAppWhitelistDialog by remember { mutableStateOf(false) }
+    var showMemoriesDialog by remember { mutableStateOf(false) }
     var showCalendarModeDialog by remember { mutableStateOf(false) }
     var calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -530,6 +532,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 Strings.t(Strings.calendarModeDirect)
                             else Strings.t(Strings.calendarModeConfirm),
                             onClick = { showCalendarModeDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Psychology,
+                            title = Strings.t(Strings.memoriesLabel),
+                            subtitle = Strings.t(Strings.memoriesHint),
+                            onClick = { showMemoriesDialog = true }
                         )
                         SettingsItem(
                             icon = Icons.Default.Apps,
@@ -914,6 +922,10 @@ fun SettingsScreen(onBack: () -> Unit) {
             },
             onDismiss = { showLanguageDialog = false }
         )
+    }
+
+    if (showMemoriesDialog) {
+        MemoriesDialog(onDismiss = { showMemoriesDialog = false })
     }
 
     if (showAppWhitelistDialog) {
@@ -3293,6 +3305,170 @@ private fun AppWhitelistDialog(onDismiss: () -> Unit) {
                                 allowed = AppSettings.allowedAppList()
                             }
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Memories manager (Tools tab): list every memory by kind, create by hand,
+ * edit, delete. The model's saves carry source=model; user-made edits are
+ * source=user. Skills accept a trigger.
+ */
+@Composable
+private fun MemoriesDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var items by remember { mutableStateOf(emptyList<com.taboia872.androidassist.memory.Memory>()) }
+    var editing by remember { mutableStateOf<com.taboia872.androidassist.memory.Memory?>(null) }
+    var editKind by remember { mutableStateOf("fact") }
+    var editText by remember { mutableStateOf("") }
+    var editTrigger by remember { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+
+    fun refresh() {
+        items = com.taboia872.androidassist.memory.MemoryStore.all(context)
+    }
+    LaunchedEffect(Unit) { refresh() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(28.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column {
+                TopAppBar(
+                    title = { Text(Strings.t(Strings.memoriesLabel)) },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, Strings.t(Strings.close))
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = {
+                            adding = true
+                            editing = null
+                            editKind = "fact"
+                            editText = ""
+                            editTrigger = ""
+                        }) { Text(Strings.t(Strings.addMemory)) }
+                    }
+                )
+                Text(
+                    Strings.t(Strings.memoriesHint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+
+                if (adding || editing != null) {
+                    // editor
+                    Column(modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("core", "preference", "fact", "skill").forEach { k ->
+                                FilterChip(
+                                    selected = editKind == k,
+                                    onClick = { editKind = k },
+                                    label = { Text(k) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = editText,
+                            onValueChange = { editText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text(Strings.t(Strings.memoryText)) },
+                            minLines = 2
+                        )
+                        if (editKind == "skill") {
+                            OutlinedTextField(
+                                value = editTrigger,
+                                onValueChange = { editTrigger = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(Strings.t(Strings.memoryTrigger)) },
+                                singleLine = true
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                if (editText.isNotBlank()) {
+                                    val e = editing
+                                    if (e != null) {
+                                        MemoryStore.update(context, e.id, editText)
+                                        if (e.kind != editKind || e.trigger != editTrigger) {
+                                            MemoryStore.delete(context, e.id)
+                                            MemoryStore.add(context, editKind, editText, source = "user")
+                                        }
+                                    } else {
+                                        MemoryStore.add(context, editKind, editText, source = "user")
+                                    }
+                                    adding = false
+                                    editing = null
+                                    refresh()
+                                }
+                            }) { Text(Strings.t(Strings.save)) }
+                            TextButton(onClick = { adding = false; editing = null }) {
+                                Text(Strings.t(Strings.cancel))
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        if (items.isEmpty()) {
+                            item {
+                                Text(
+                                    Strings.t(Strings.noMemories),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+                        items(items) { m ->
+                            ListItem(
+                                headlineContent = {
+                                    Text(m.text, style = MaterialTheme.typography.bodyMedium)
+                                },
+                                supportingContent = {
+                                    Text(
+                                        m.kind + (if (m.trigger.isNotBlank()) " \u00b7 " + m.trigger else "") +
+                                            " \u00b7 " + m.source,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                },
+                                trailingContent = {
+                                    Row {
+                                        IconButton(onClick = {
+                                            editing = m
+                                            editKind = m.kind
+                                            editText = m.text
+                                            editTrigger = m.trigger
+                                        }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Edit, Strings.t(Strings.rename),
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(onClick = {
+                                            MemoryStore.delete(context, m.id)
+                                            refresh()
+                                        }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Delete, Strings.t(Strings.delete),
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
