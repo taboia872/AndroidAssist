@@ -139,7 +139,8 @@ object BackupStore {
         for (k in keysObj.keys()) incoming[k] = keysObj.getString(k)
         val merged = cfg.apiKeys.toMutableMap()
         incoming.forEach { (k, v) ->
-            if (!merged.containsKey(k) || merged[k].isBlank()) merged[k] = v
+            val cur = merged[k]
+            if (cur.isNullOrBlank()) merged[k] = v
         }
         AppSettings.update { it.copy(apiKeys = merged) }
         // custom endpoints: merge by id
