@@ -119,6 +119,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
+import com.taboia872.androidassist.memory.MemoryStore
 import com.taboia872.androidassist.llm.ModelInfo
 import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.settings.AppSettings
@@ -3317,6 +3318,7 @@ private fun AppWhitelistDialog(onDismiss: () -> Unit) {
  * edit, delete. The model's saves carry source=model; user-made edits are
  * source=user. Skills accept a trigger.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MemoriesDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current

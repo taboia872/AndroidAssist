@@ -230,10 +230,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             }
             // Persistent memories (core instructions + preferences) ride the
             // system prompt; facts/skills stay retrievable via search_memories.
-            val appCtx = ctx ?: context0
-            if (appCtx != null) {
-                basePrompt += MemoryStore.promptBlock(appCtx)
-            }
+            ctx?.let { basePrompt += MemoryStore.promptBlock(it) }
 
             // Snapshot BEFORE the turn streams: every round replays the same
             // conversation + ALL completed tool exchanges (multi-search loop).
@@ -340,6 +337,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                                 toolHeader = "\ud83e\udde9 " + target.take(60)
                                 toolResult = if (gone) "Memory deleted: '" + target + "'."
                                 else "No memory matched '" + target + "' — nothing deleted."
+                                addBlock("tool", toolHeader, "")
+                            }
+                            else -> {
+                                toolHeader = toolName
+                                toolResult = "Unknown memory tool."
                                 addBlock("tool", toolHeader, "")
                             }
                         }
