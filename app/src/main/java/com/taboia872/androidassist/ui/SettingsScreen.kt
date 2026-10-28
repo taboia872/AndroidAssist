@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.ui
 
+import com.taboia872.androidassist.backup.BackupStore
 import com.taboia872.androidassist.i18n.Strings
 import android.content.Intent
 import android.os.Build
@@ -175,6 +176,58 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showCalendarDialog by remember { mutableStateOf(false) }
     var showAppWhitelistDialog by remember { mutableStateOf(false) }
     var showMemoriesDialog by remember { mutableStateOf(false) }
+
+    // ---- Backup (fractional): pending kind drives the SAF launcher result ----
+    var pendingBackupKind by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val kind = pendingBackupKind
+        if (uri != null && kind != null) {
+            try {
+                BackupStore.export(context, kind, uri)
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, e.message ?: "?", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        pendingBackupKind = null
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+            }
+            try {
+                val (kind, data) = BackupStore.read(uri, context)
+                when (kind) {
+                    BackupStore.KIND_MEMORIES ->
+                        BackupStore.restoreMemories(context, data as org.json.JSONArray)
+                    BackupStore.KIND_KEYS ->
+                        BackupStore.restoreKeys(data as org.json.JSONObject)
+                    BackupStore.KIND_PROMPT ->
+                        BackupStore.restorePrompt(data as org.json.JSONObject)
+                    BackupStore.KIND_CHATS ->
+                        BackupStore.restoreChats(context, data as org.json.JSONArray)
+                    else -> {
+                        android.widget.Toast.makeText(
+                            context, Strings.t(Strings.backupUnknown), android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        return@rememberLauncherForActivityResult
+                    }
+                }
+                android.widget.Toast.makeText(
+                    context, Strings.t(Strings.backupImported), android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, e.message ?: "?", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     var showCalendarModeDialog by remember { mutableStateOf(false) }
     var calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -684,6 +737,42 @@ fun SettingsScreen(onBack: () -> Unit) {
                             onClick = { showAccentDialog = true }
                         )
                     }
+                    SettingsSection(title = Strings.t(Strings.backupSection)) {
+                        // Fractional backup: each kind is its own file (user
+                        // request) — export/import rows per kind.
+                        listOf(
+                            BackupStore.KIND_MEMORIES to Strings.t(Strings.backupMemories),
+                            BackupStore.KIND_KEYS to Strings.t(Strings.backupKeys),
+                            BackupStore.KIND_PROMPT to Strings.t(Strings.backupPrompt),
+                            BackupStore.KIND_CHATS to Strings.t(Strings.backupChats)
+                        ).forEach { (kind, label) ->
+                            // date stamp computed once (remember in a loop is fragile)
+                            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm")
+                                .format(java.util.Date())
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 22.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = {
+                                    pendingBackupKind = kind
+                                    exportLauncher.launch(
+                                        "androidassist-backup-$kind-$stamp.json"
+                                    )
+                                }) { Text(Strings.t(Strings.backupExport)) }
+                                TextButton(onClick = { importLauncher.launch(arrayOf("application/json")) }) {
+                                    Text(Strings.t(Strings.backupImport))
+                                }
+                            }
+                        }
+                    }
+
                     SettingsSection(title = Strings.t(Strings.appLanguage)) {
                         SettingsItem(
                             icon = Icons.Default.Language,
@@ -3328,6 +3417,17 @@ private fun MemoriesDialog(onDismiss: () -> Unit) {
     var editText by remember { mutableStateOf("") }
     var editTrigger by remember { mutableStateOf("") }
     var adding by remember { mutableStateOf(false) }
+    // Filter & sort (user request): kind filter chips + date/name sort
+    var filterKind by remember { mutableStateOf("") }   // "" = all
+    var sortMode by remember { mutableStateOf(0) }      // 0 = newest, 1 = oldest, 2 = A-Z
+    val filteredSorted = remember(items, filterKind, sortMode) {
+        val f = if (filterKind.isBlank()) items else items.filter { it.kind == filterKind }
+        when (sortMode) {
+            1 -> f.sortedBy { it.created }
+            2 -> f.sortedBy { it.text.lowercase() }
+            else -> f.sortedByDescending { it.created }
+        }
+    }
 
     fun refresh() {
         items = com.taboia872.androidassist.memory.MemoryStore.all(context)
@@ -3369,6 +3469,42 @@ private fun MemoriesDialog(onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
+
+                // Filter chips (all/core/preference/fact/skill) + sort toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = filterKind.isBlank(),
+                        onClick = { filterKind = "" },
+                        label = { Text(Strings.t(Strings.all)) }
+                    )
+                    listOf("core", "preference", "fact", "skill").forEach { k ->
+                        FilterChip(
+                            selected = filterKind == k,
+                            onClick = { filterKind = k },
+                            label = { Text(k) }
+                        )
+                    }
+                    // Sort: newest -> oldest -> A-Z (cycles)
+                    FilterChip(
+                        selected = false,
+                        onClick = { sortMode = (sortMode + 1) % 3 },
+                        label = {
+                            Text(
+                                when (sortMode) {
+                                    1 -> Strings.t(Strings.sortOldest)
+                                    2 -> Strings.t(Strings.sortByName)
+                                    else -> Strings.t(Strings.sortNewest)
+                                }
+                            )
+                        }
+                    )
+                }
 
                 if (adding || editing != null) {
                     // editor
@@ -3426,17 +3562,18 @@ private fun MemoriesDialog(onDismiss: () -> Unit) {
                     }
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        if (items.isEmpty()) {
+                        if (filteredSorted.isEmpty()) {
                             item {
                                 Text(
-                                    Strings.t(Strings.noMemories),
+                                    if (items.isEmpty()) Strings.t(Strings.noMemories)
+                                    else Strings.t(Strings.noMemoriesFiltered),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(16.dp)
                                 )
                             }
                         }
-                        items(items) { m ->
+                        items(filteredSorted) { m ->
                             ListItem(
                                 headlineContent = {
                                     Text(m.text, style = MaterialTheme.typography.bodyMedium)

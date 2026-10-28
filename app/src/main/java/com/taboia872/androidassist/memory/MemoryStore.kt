@@ -69,6 +69,11 @@ object MemoryStore {
         }
     }
 
+    /** Replace the whole store (backup restore, UI edits). */
+    fun replaceAll(context: Context, list: List<Memory>) {
+        save(context, list)
+    }
+
     private fun save(context: Context, list: List<Memory>) {
         val arr = JSONArray()
         list.forEach { m ->

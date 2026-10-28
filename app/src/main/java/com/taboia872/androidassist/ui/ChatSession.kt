@@ -306,13 +306,6 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                                     (if (mem.kind == "core") "this instruction from NOW ON in every reply"
                                      else "this when relevant") + "."
                                 addBlock("tool", toolHeader, "")
-                                android.widget.Toast.makeText(
-                                    c,
-                                    "\ud83d\udcae " + com.taboia872.androidassist.i18n.Strings.t(
-                                        com.taboia872.androidassist.i18n.Strings.memorySavedToast
-                                    ) + " " + mem.text.take(80),
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
                             }
                             "search_memories" -> {
                                 val q0 = argsObj.optString("query", "")
