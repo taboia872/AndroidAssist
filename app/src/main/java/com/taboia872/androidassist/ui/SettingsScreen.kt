@@ -1678,7 +1678,7 @@ private fun ProviderKeyDialog(
     )
 
     if (confirmDelete != null) {
-        val keyToDelete = confirmDelete
+        val keyToDelete = confirmDelete!!
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text(Strings.t(Strings.removeKeyQ)) },
