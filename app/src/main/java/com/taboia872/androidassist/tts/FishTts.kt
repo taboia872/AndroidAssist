@@ -2,6 +2,7 @@ package com.taboia872.androidassist.tts
 
 import android.media.MediaPlayer
 import android.util.Log
+import com.taboia872.androidassist.llm.KeyRotation
 import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +39,7 @@ object FishTts {
     private val _state = MutableStateFlow<TtsManager.TtsState>(TtsManager.TtsState.Idle)
     val state: StateFlow<TtsManager.TtsState> = _state
 
-    fun hasKey(): Boolean =
-        (AppSettings.config.value.apiKeys["fish"] ?: "").isNotBlank()
+    fun hasKey(): Boolean = AppSettings.keysFor("fish").isNotEmpty()
 
     /**
      * List voices from FishAudio's public catalog: GET /model (root path).
@@ -57,8 +57,8 @@ object FishTts {
         search: String = "",
         pageNumber: Int = 1
     ): Result<VoicePage> = withContext(Dispatchers.IO) {
-        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-        if (key.isBlank()) {
+        val keys = AppSettings.keysFor("fish")
+        if (keys.isEmpty()) {
             return@withContext Result.failure(
                 IllegalStateException("No FishAudio API key")
             )
@@ -69,37 +69,54 @@ object FishTts {
                 "&title=" + java.net.URLEncoder.encode(search, "UTF-8") else ""
             val url = "https://api.fish.audio/model?page_size=50" +
                 "&page_number=$pageNumber$langQ$searchQ"
-            val conn = Net.open(url).apply {
-                requestMethod = "GET"
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                setRequestProperty("Authorization", "Bearer $key")
-                setRequestProperty("Accept", "application/json")
-            }
-            try {
-                if (conn.responseCode != 200) {
-                    throw RuntimeException("HTTP ${conn.responseCode}")
+            // Key rotation: a rejected key (401/403/429) is retried with the
+            // next candidate before giving up.
+            val strategy = AppSettings.config.value.keyRotationStrategy
+            val order = KeyRotation.candidates("fish", keys, strategy)
+            var lastErr: Exception? = null
+            for (idx in order) {
+                val key = keys[idx]
+                val conn = Net.open(url).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15_000
+                    readTimeout = 30_000
+                    setRequestProperty("Authorization", "Bearer $key")
+                    setRequestProperty("Accept", "application/json")
                 }
-                val root = JSONObject(conn.inputStream.bufferedReader().readText())
-                val items = root.optJSONArray("items") ?: org.json.JSONArray()
-                val out = ArrayList<FishVoice>(items.length())
-                for (i in 0 until items.length()) {
-                    val item = items.optJSONObject(i) ?: continue
-                    val id = item.optString("_id", "")
-                    if (id.isEmpty()) continue
-                    val title = item.optString("title", "").ifEmpty { "Voice $id" }
-                    out.add(FishVoice(id, title))
+                try {
+                    if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        if (code == 401 || code == 403 || code == 429) {
+                            throw KeyRotation.KeyRejected(code, "FishAudio HTTP $code")
+                        }
+                        throw RuntimeException("HTTP ${conn.responseCode}")
+                    }
+                    val root = JSONObject(conn.inputStream.bufferedReader().readText())
+                    val items = root.optJSONArray("items") ?: org.json.JSONArray()
+                    val out = ArrayList<FishVoice>(items.length())
+                    for (i in 0 until items.length()) {
+                        val item = items.optJSONObject(i) ?: continue
+                        val id = item.optString("_id", "")
+                        if (id.isEmpty()) continue
+                        val title = item.optString("title", "").ifEmpty { "Voice $id" }
+                        out.add(FishVoice(id, title))
+                    }
+                    KeyRotation.markUsed("fish", idx, strategy)
+                    return@runCatching VoicePage(out, root.optBoolean("has_more", false))
+                } catch (e: KeyRotation.KeyRejected) {
+                    lastErr = e
+                    KeyRotation.advanceOnFailure("fish", idx, strategy, keys.size)
+                } finally {
+                    conn.disconnect()
                 }
-                VoicePage(out, root.optBoolean("has_more", false))
-            } finally {
-                conn.disconnect()
             }
+            throw lastErr ?: RuntimeException("FishAudio: no key worked")
         }
     }
 
     suspend fun speak(text: String): Boolean = withContext(Dispatchers.IO) {
-        val key = AppSettings.config.value.apiKeys["fish"] ?: ""
-        if (key.isBlank()) {
+        val keys = AppSettings.keysFor("fish")
+        if (keys.isEmpty()) {
             _state.value = TtsManager.TtsState.Failed("No FishAudio API key — add it in Settings")
             return@withContext false
         }
@@ -129,38 +146,65 @@ object FishTts {
                 }
             }
 
-            val conn = Net.open(ENDPOINT).apply {
-                requestMethod = "POST"
-                connectTimeout = 20_000
-                readTimeout = 60_000
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $key")
-                setRequestProperty("Content-Type", "application/json")
-                // MODEL IN HEADER — FishAudio contract
-                setRequestProperty("model", cfg.fishModel.ifBlank { "s2.1-pro-free" })
-            }
+            // Key rotation: try each candidate until one is accepted.
+            val strategy = AppSettings.config.value.keyRotationStrategy
+            val order = KeyRotation.candidates("fish", keys, strategy)
+            var lastErr: Exception? = null
+            for (idx in order) {
+                val key = keys[idx]
+                val conn = Net.open(ENDPOINT).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 20_000
+                    readTimeout = 60_000
+                    doOutput = true
+                    setRequestProperty("Authorization", "Bearer $key")
+                    setRequestProperty("Content-Type", "application/json")
+                    // MODEL IN HEADER — FishAudio contract
+                    setRequestProperty("model", cfg.fishModel.ifBlank { "s2.1-pro-free" })
+                }
+                try {
+                    conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                    val status = conn.responseCode
+                    if (status != 200) {
+                        val err = conn.errorStream?.bufferedReader()?.readText()?.take(200) ?: ""
+                        Log.e(TAG, "FishAudio HTTP $status: $err")
+                        if (status == 401 || status == 403 || status == 429) {
+                            lastErr = KeyRotation.KeyRejected(status, "FishAudio HTTP $status")
+                            KeyRotation.advanceOnFailure("fish", idx, strategy, keys.size)
+                            continue
+                        }
+                        _state.value = TtsManager.TtsState.Failed("FishAudio HTTP $status")
+                        return@withContext false
+                    }
 
-            val status = conn.responseCode
-            if (status != 200) {
-                val err = conn.errorStream?.bufferedReader()?.readText()?.take(200) ?: ""
-                Log.e(TAG, "FishAudio HTTP $status: $err")
-                _state.value = TtsManager.TtsState.Failed("FishAudio HTTP $status")
-                return@withContext false
-            }
+                    // Spool to cache file, then play
+                    val outFile = File.createTempFile("fish_tts", ".mp3", null)
+                    conn.inputStream.use { input ->
+                        FileOutputStream(outFile).use { output ->
+                            input.copyTo(output, 8192)
+                        }
+                    }
+                    conn.disconnect()
 
-            // Spool to cache file, then play
-            val outFile = File.createTempFile("fish_tts", ".mp3", null)
-            conn.inputStream.use { input ->
-                FileOutputStream(outFile).use { output ->
-                    input.copyTo(output, 8192)
+                    KeyRotation.markUsed("fish", idx, strategy)
+                    play(outFile)
+                    return@withContext true
+                } catch (e: KeyRotation.KeyRejected) {
+                    lastErr = e
+                    KeyRotation.advanceOnFailure("fish", idx, strategy, keys.size)
+                } catch (e: Exception) {
+                    Log.e(TAG, "FishAudio failed", e)
+                    _state.value = TtsManager.TtsState.Failed("FishAudio: ${e.message}")
+                    return@withContext false
+                } finally {
+                    try { conn.disconnect() } catch (e2: Exception) { }
                 }
             }
-            conn.disconnect()
-
-            play(outFile)
-            true
+            _state.value = TtsManager.TtsState.Failed(
+                "FishAudio: ${lastErr?.message ?: "no key worked"}"
+            )
+            false
         } catch (e: Exception) {
             Log.e(TAG, "FishAudio failed", e)
             _state.value = TtsManager.TtsState.Failed("FishAudio: ${e.message}")

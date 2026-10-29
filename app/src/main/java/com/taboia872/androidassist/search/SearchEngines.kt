@@ -1,5 +1,6 @@
 package com.taboia872.androidassist.search
 
+import com.taboia872.androidassist.llm.KeyRotation
 import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
@@ -37,28 +38,55 @@ object SearchEngines {
     fun isConfigured(id: String): Boolean {
         val e = byId(id)
         if (e.keySlot == null) return true
-        return (AppSettings.config.value.apiKeys[e.keySlot] ?: "").isNotBlank()
+        return AppSettings.keysFor(e.keySlot).isNotEmpty()
+    }
+
+    /**
+     * Run a search call with the rotation candidates of [slot]. A key the
+     * server REJECTS (401/403/429) is not fatal — the next candidate is
+     * tried and only when EVERY key fails the error surfaces.
+     */
+    private suspend fun <T> withKeyRotation(slot: String, block: suspend (String) -> T): T {
+        val keys = AppSettings.keysFor(slot)
+        if (keys.isEmpty()) throw IllegalStateException("no API key saved")
+        val strategy = AppSettings.config.value.keyRotationStrategy
+        val order = KeyRotation.candidates(slot, keys, strategy)
+        var lastErr: Exception? = null
+        for (idx in order) {
+            try {
+                val out = block(keys[idx])
+                KeyRotation.markUsed(slot, idx, strategy)
+                return out
+            } catch (e: KeyRotation.KeyRejected) {
+                lastErr = e
+                KeyRotation.advanceOnFailure(slot, idx, strategy, keys.size)
+            }
+        }
+        throw lastErr ?: IllegalStateException("no API key saved")
     }
 
     suspend fun search(query: String): SearchOutcome {
         val cfg = AppSettings.config.value
         val count = cfg.searchResultCount.coerceIn(1, 10)
-        return when (cfg.searchEngine) {
-            "parallel" -> parallelSearch(query, count)
-            "brave" -> braveSearch(query, count)
-            "exa" -> exaSearch(query, count)
-            "langsearch" -> langSearch(query, count)
-            "jina" -> jinaSearch(query, count)
-            else -> DuckDuckGo.search(query, count)
+        return try {
+            when (cfg.searchEngine) {
+                "parallel" -> parallelSearch(query, count)
+                "brave" -> withKeyRotation("brave") { braveSearch(query, count, it) }
+                "exa" -> withKeyRotation("exa") { exaSearch(query, count, it) }
+                "langsearch" -> withKeyRotation("langsearch") { langSearch(query, count, it) }
+                "jina" -> withKeyRotation("jina") { jinaSearch(query, count, it) }
+                else -> DuckDuckGo.search(query, count)
+            }
+        } catch (e: Exception) {
+            SearchOutcome.Failed(e.message ?: "search failed")
         }
     }
 
     // ------------------------------------------------------------- Brave
     // GET api.search.brave.com/res/v1/web/search, X-Subscription-Token header
-    private suspend fun braveSearch(query: String, count: Int): SearchOutcome =
+    private suspend fun braveSearch(query: String, count: Int, key: String): SearchOutcome =
         withContext(Dispatchers.IO) {
             val cfg = AppSettings.config.value
-            val key = cfg.apiKeys["brave"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no Brave API key saved")
             try {
                 val region = if (cfg.searchRegion.isNotBlank()) "&country=${cfg.searchRegion}" else ""
@@ -79,6 +107,10 @@ object SearchEngines {
                 }
                 try {
                     if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        if (code == 401 || code == 403 || code == 429) {
+                            throw KeyRotation.KeyRejected(code, "Brave HTTP $code")
+                        }
                         return@withContext SearchOutcome.Failed("Brave HTTP ${conn.responseCode}")
                     }
                     val root = JSONObject(conn.inputStream.bufferedReader().readText())
@@ -100,6 +132,8 @@ object SearchEngines {
                 } finally {
                     conn.disconnect()
                 }
+            } catch (e: KeyRotation.KeyRejected) {
+                throw e
             } catch (e: Exception) {
                 SearchOutcome.Failed("Brave network: ${e.message}")
             }
@@ -107,9 +141,8 @@ object SearchEngines {
 
     // ------------------------------------------------------------- Exa
     // POST api.exa.ai/search, Bearer key; contents.highlights for excerpts
-    private suspend fun exaSearch(query: String, count: Int): SearchOutcome =
+    private suspend fun exaSearch(query: String, count: Int, key: String): SearchOutcome =
         withContext(Dispatchers.IO) {
-            val key = AppSettings.config.value.apiKeys["exa"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no Exa API key saved")
             try {
                 val body = JSONObject().apply {
@@ -138,6 +171,10 @@ object SearchEngines {
                         it.write(body.toString().toByteArray(Charsets.UTF_8))
                     }
                     if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        if (code == 401 || code == 403 || code == 429) {
+                            throw KeyRotation.KeyRejected(code, "Exa HTTP $code")
+                        }
                         return@withContext SearchOutcome.Failed("Exa HTTP ${conn.responseCode}")
                     }
                     val results = JSONObject(conn.inputStream.bufferedReader().readText())
@@ -160,6 +197,8 @@ object SearchEngines {
                 } finally {
                     conn.disconnect()
                 }
+            } catch (e: KeyRotation.KeyRejected) {
+                throw e
             } catch (e: Exception) {
                 SearchOutcome.Failed("Exa network: ${e.message}")
             }
@@ -167,9 +206,8 @@ object SearchEngines {
 
     // ------------------------------------------------------------- LangSearch
     // POST api.langsearch.com/v1/web-search, Bearer key; contents.text
-    private suspend fun langSearch(query: String, count: Int): SearchOutcome =
+    private suspend fun langSearch(query: String, count: Int, key: String): SearchOutcome =
         withContext(Dispatchers.IO) {
-            val key = AppSettings.config.value.apiKeys["langsearch"] ?: ""
             if (key.isBlank()) return@withContext SearchOutcome.Failed("no LangSearch API key saved")
             try {
                 val body = JSONObject().apply {
@@ -190,6 +228,10 @@ object SearchEngines {
                         it.write(body.toString().toByteArray(Charsets.UTF_8))
                     }
                     if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        if (code == 401 || code == 403 || code == 429) {
+                            throw KeyRotation.KeyRejected(code, "LangSearch HTTP $code")
+                        }
                         return@withContext SearchOutcome.Failed("LangSearch HTTP ${conn.responseCode}")
                     }
                     val results = JSONObject(conn.inputStream.bufferedReader().readText())
@@ -211,6 +253,8 @@ object SearchEngines {
                 } finally {
                     conn.disconnect()
                 }
+            } catch (e: KeyRotation.KeyRejected) {
+                throw e
             } catch (e: Exception) {
                 SearchOutcome.Failed("LangSearch network: ${e.message}")
             }
@@ -264,10 +308,8 @@ object SearchEngines {
     // ------------------------------------------------------------- Jina (MCP)
     // POST mcp.jina.ai/v1 JSON-RPC. Keyless with limits; a key (jina slot)
     // lifts them. search_web returns web results; also exposes read_url.
-    private suspend fun jinaSearch(query: String, count: Int): SearchOutcome =
+    private suspend fun jinaSearch(query: String, count: Int, key: String): SearchOutcome =
         withContext(Dispatchers.IO) {
-            val cfg = AppSettings.config.value
-            val key = cfg.apiKeys["jina"] ?: ""
             try {
                 val params = JSONObject().apply {
                     put("name", "search_web")
@@ -299,6 +341,8 @@ object SearchEngines {
                     ))
                 }
                 SearchOutcome.Ok(out)
+            } catch (e: KeyRotation.KeyRejected) {
+                throw e
             } catch (e: Exception) {
                 SearchOutcome.Failed("Jina: ${e.message}")
             }
@@ -318,6 +362,10 @@ object SearchEngines {
         try {
             conn.outputStream.use { it.write(req.toString().toByteArray(Charsets.UTF_8)) }
             if (conn.responseCode != 200) {
+                val code = conn.responseCode
+                if (code == 401 || code == 403 || code == 429) {
+                    throw KeyRotation.KeyRejected(code, "HTTP $code")
+                }
                 throw RuntimeException("HTTP ${conn.responseCode}")
             }
             var body = conn.inputStream.bufferedReader().readText()

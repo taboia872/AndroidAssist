@@ -65,7 +65,14 @@ object BackupStore {
         val cfg = AppSettings.config.value
         return JSONObject().apply {
             put("providerId", cfg.providerId)
-            put("apiKeys", JSONObject(cfg.apiKeys))
+            // v2: every slot carries the LIST of its keys
+            val keys = JSONObject()
+            cfg.apiKeys.forEach { (slot, list) ->
+                val arr = JSONArray()
+                list.forEach { arr.put(it) }
+                keys.put(slot, arr)
+            }
+            put("apiKeys", keys)
             put("customEndpoints", JSONArray(cfg.customEndpoints))
         }
     }
@@ -130,17 +137,38 @@ object BackupStore {
         }
     }
 
-    /** Restore keys: MERGE slots (imported keys win on conflict? No — keep
-     *  existing, add missing; the user can edit in Settings). */
+    /**
+     * Restore keys: MERGE slots (imported keys win on conflict? No — keep
+     * existing, add missing; the user can edit in Settings).
+     *
+     * Accepts BOTH formats: v2 {slot: ["k1","k2"]} and the legacy
+     * v1 {slot: "k1"}. Keys already saved in a slot are NEVER overwritten;
+     * only missing ones are appended.
+     */
     fun restoreKeys(data: JSONObject) {
         val cfg = AppSettings.config.value
-        val incoming = mutableMapOf<String, String>()
-        val keysObj = data.optJSONObject("apiKeys") ?: JSONObject()
-        for (k in keysObj.keys()) incoming[k] = keysObj.getString(k)
         val merged = cfg.apiKeys.toMutableMap()
-        incoming.forEach { (k, v) ->
-            val cur = merged[k]
-            if (cur.isNullOrBlank()) merged[k] = v
+        val keysObj = data.optJSONObject("apiKeys") ?: JSONObject()
+        for (slot in keysObj.keys()) {
+            val incoming = mutableListOf<String>()
+            when (val v = keysObj.get(slot)) {
+                is String -> if (v.isNotBlank()) incoming.add(v)
+                is org.json.JSONArray -> {
+                    for (i in 0 until v.length()) {
+                        val s = v.optString(i)
+                        if (s.isNotBlank()) incoming.add(s)
+                    }
+                }
+                else -> Unit
+            }
+            if (incoming.isEmpty()) continue
+            val current = merged[slot] ?: emptyList()
+            val list = current.toMutableList()
+            for (k in incoming) {
+                // Existing key wins — only fill the gaps
+                if (!list.contains(k)) list.add(k)
+            }
+            merged[slot] = list
         }
         AppSettings.update { it.copy(apiKeys = merged) }
         // custom endpoints: merge by id

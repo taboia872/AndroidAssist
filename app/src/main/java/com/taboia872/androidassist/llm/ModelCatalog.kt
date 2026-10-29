@@ -1,6 +1,7 @@
 package com.taboia872.androidassist.llm
 
 import com.taboia872.androidassist.net.Net
+import com.taboia872.androidassist.settings.AppSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -57,11 +58,16 @@ object ModelCatalog {
                 System.currentTimeMillis() - it.fetchedAt < CACHE_TTL_MS
         }?.models
 
-    /** Fetch the catalog. Errors surface as Result.failure — caller decides. */
+    /**
+     * Fetch the catalog. Errors surface as Result.failure — caller decides.
+     * [slot] (when not blank) makes the fetch use ALL keys of that slot with
+     * the rotation strategy; otherwise the single [apiKey] is used.
+     */
     suspend fun fetch(
         baseUrl: String,
         apiKey: String,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        slot: String = ""
     ): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         val url = baseUrl.trimEnd('/')
         if (url.isBlank()) return@withContext Result.failure(IllegalArgumentException("Base URL is empty"))
@@ -69,24 +75,47 @@ object ModelCatalog {
             cached(url, apiKey)?.let { return@withContext Result.success(it) }
         }
         runCatching {
-            val conn = Net.open("$url/models").apply {
-                requestMethod = "GET"
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                setRequestProperty("Accept", "application/json")
-                if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
-            }
-            try {
-                if (conn.responseCode != 200) {
-                    throw RuntimeException("HTTP ${conn.responseCode}")
+            // Key rotation: a key the server rejects (401/403/429) is not
+            // fatal — the next candidate is tried.
+            val keys = if (slot.isNotBlank()) AppSettings.keysFor(slot)
+                else if (apiKey.isNotBlank()) listOf(apiKey) else emptyList()
+            val rotSlot = if (slot.isNotBlank()) slot else "modelcatalog:$url"
+            val strategy = AppSettings.config.value.keyRotationStrategy
+            val order = if (keys.isEmpty()) listOf(0)
+                else KeyRotation.candidates(rotSlot, keys, strategy)
+            var lastErr: Exception? = null
+            for (idx in order) {
+                val key = if (keys.isEmpty()) "" else keys[idx]
+                val conn = Net.open("$url/models").apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 15_000
+                    setRequestProperty("Accept", "application/json")
+                    if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
                 }
-                val models = parse(conn.inputStream.bufferedReader().readText(), url)
-                if (models.isEmpty()) throw RuntimeException("Server returned no models")
-                cache = Cached(url, apiKey, models, System.currentTimeMillis())
-                models
-            } finally {
-                conn.disconnect()
+                try {
+                    if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        if (code == 401 || code == 403 || code == 429) {
+                            throw KeyRotation.KeyRejected(code, "HTTP $code")
+                        }
+                        throw RuntimeException("HTTP ${conn.responseCode}")
+                    }
+                    val models = parse(conn.inputStream.bufferedReader().readText(), url)
+                    if (models.isEmpty()) throw RuntimeException("Server returned no models")
+                    if (keys.isNotEmpty()) KeyRotation.markUsed(rotSlot, idx, strategy)
+                    cache = Cached(url, apiKey, models, System.currentTimeMillis())
+                    return@runCatching models
+                } catch (e: KeyRotation.KeyRejected) {
+                    lastErr = e
+                    if (keys.isNotEmpty()) {
+                        KeyRotation.advanceOnFailure(rotSlot, idx, strategy, keys.size)
+                    }
+                } finally {
+                    conn.disconnect()
+                }
             }
+            throw lastErr ?: RuntimeException("No model catalog available")
         }
     }
 

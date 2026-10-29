@@ -117,8 +117,12 @@ object VoiceEngine {
     /** WAV header + PCM → Groq audio/transcriptions, model from settings. */
     fun transcribeGroq(pcm: ByteArray, language: String): Result<String> {
         val cfg = com.taboia872.androidassist.settings.AppSettings.config.value
-        val groqKey = cfg.apiKeys["groq"] ?: cfg.apiKeys[cfg.providerId] ?: ""
-        if (groqKey.isBlank()) {
+        // The groq slot holds the Whisper keys; when empty, fall back to the
+        // ACTIVE provider's keys (the user may be using Groq as the chat
+        // provider and has no separate groq slot).
+        val keys = com.taboia872.androidassist.settings.AppSettings.keysFor("groq")
+            .ifEmpty { com.taboia872.androidassist.settings.AppSettings.keysFor(cfg.providerId) }
+        if (keys.isEmpty()) {
             return Result.failure(IllegalStateException("No Groq API key — add it in Settings"))
         }
         val model = cfg.whisperModel.ifBlank { "whisper-large-v3" }
@@ -126,17 +130,6 @@ object VoiceEngine {
         return try {
             val boundary = "----AndroidAssist${System.currentTimeMillis()}"
             val wav = toWav(pcm, SAMPLE_RATE)
-
-            val conn = Net.open("https://api.groq.com/openai/v1/audio/transcriptions").apply {
-                requestMethod = "POST"
-                connectTimeout = 15_000
-                readTimeout = 60_000
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $groqKey")
-                setRequestProperty(
-                    "Content-Type", "multipart/form-data; boundary=$boundary"
-                )
-            }
 
             val body = ByteArrayOutputStream()
             fun part(name: String, value: String) {
@@ -155,25 +148,67 @@ object VoiceEngine {
             if (language.isNotBlank()) part("language", normalizeLang(language))
             part("response_format", "json")
             body.write("--$boundary--\r\n".toByteArray())
+            val payload = body.toByteArray()
 
-            conn.outputStream.use { it.write(body.toByteArray()) }
+            // Key rotation: a rejected key (401/403/429) is retried with the
+            // next candidate instead of failing the transcription.
+            val strategy = cfg.keyRotationStrategy
+            val slot = if (
+                com.taboia872.androidassist.settings.AppSettings.keysFor("groq").isNotEmpty()
+            ) "groq" else cfg.providerId
+            val order = com.taboia872.androidassist.llm.KeyRotation.candidates(
+                slot, keys, strategy
+            )
+            var lastErr: Exception? = null
+            for (idx in order) {
+                val groqKey = keys[idx]
+                val conn = Net.open("https://api.groq.com/openai/v1/audio/transcriptions").apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15_000
+                    readTimeout = 60_000
+                    doOutput = true
+                    setRequestProperty("Authorization", "Bearer $groqKey")
+                    setRequestProperty(
+                        "Content-Type", "multipart/form-data; boundary=$boundary"
+                    )
+                }
+                try {
+                    conn.outputStream.use { it.write(payload) }
 
-            if (conn.responseCode != 200) {
-                val err = conn.errorStream?.bufferedReader()?.readText()?.take(300) ?: ""
-                Result.failure(RuntimeException("HTTP ${conn.responseCode}: $err"))
-            } else {
-                val text = JSONObject(conn.inputStream.bufferedReader().readText())
-                    .optString("text", "")
-                    .trim()
-                if (text.isEmpty()) Result.failure(RuntimeException("Empty transcription"))
-                else Result.success(text)
+                    if (conn.responseCode != 200) {
+                        val code = conn.responseCode
+                        val err = conn.errorStream?.bufferedReader()?.readText()?.take(300) ?: ""
+                        if (code == 401 || code == 403 || code == 429) {
+                            lastErr = com.taboia872.androidassist.llm.KeyRotation.KeyRejected(
+                                code, "HTTP $code: $err"
+                            )
+                            com.taboia872.androidassist.llm.KeyRotation.advanceOnFailure(
+                                slot, idx, strategy, keys.size
+                            )
+                            continue
+                        }
+                        return Result.failure(RuntimeException("HTTP ${conn.responseCode}: $err"))
+                    }
+
+                    val text = JSONObject(conn.inputStream.bufferedReader().readText())
+                        .optString("text", "")
+                        .trim()
+                    com.taboia872.androidassist.llm.KeyRotation.markUsed(slot, idx, strategy)
+                    if (text.isEmpty()) {
+                        return Result.failure(RuntimeException("Empty transcription"))
+                    }
+                    return Result.success(text)
+                } catch (e: com.taboia872.androidassist.llm.KeyRotation.KeyRejected) {
+                    lastErr = e
+                } finally {
+                    try { conn.disconnect() } catch (e2: Exception) { }
+                }
             }
+            Result.failure(lastErr ?: RuntimeException("Groq: no key worked"))
         } catch (e: JSONException) {
             Result.failure(e)
         } catch (e: Exception) {
             Result.failure(e)
-        } finally {
-            // no connection ref here outside try; HttpURLConnection cleans up
         }
     }
 

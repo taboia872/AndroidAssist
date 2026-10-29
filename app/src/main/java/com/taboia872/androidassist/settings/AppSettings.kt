@@ -21,7 +21,20 @@ import org.json.JSONObject
 data class AppConfig(
     val providerId: String = LlmProviders.OPENROUTER.id,
     val baseUrl: String = LlmProviders.OPENROUTER.defaultBaseUrl,
-    val apiKeys: Map<String, String> = emptyMap(),
+    /**
+     * ALL API keys per slot. A slot is a provider id ("openrouter", "groq",
+     * "fish", "brave"...). The value is the LIST of keys saved for that
+     * slot — the rotation engine (llm/KeyRotation.kt) picks which one is
+     * used, and retries the next one when the server rejects it.
+     */
+    val apiKeys: Map<String, List<String>> = emptyMap(),
+    /**
+     * GLOBAL rotation strategy for every slot:
+     * "random" | "round_robin" | "last_used" | "last_unused".
+     */
+    val keyRotationStrategy: String = "round_robin",
+    /** Rotation bookkeeping per slot (cursor / last used / used set). */
+    val keyRotationState: String = "{}",
     val model: String = "",
     val systemPrompt: String = "You are a helpful, concise assistant. Always reply in the user's language.",
     // Voice (Groq Whisper, online phase)
@@ -93,8 +106,19 @@ data class AppConfig(
     /** Saved custom endpoints: JSON array of {id,name,baseUrl} */
     val customEndpoints: String = "[]"
 ) {
-    /** Key for the ACTIVE provider — the one place the active key is read. */
-    val apiKey: String get() = apiKeys[providerId] ?: ""
+    /**
+     * The active provider's keys (ALL of them). Empty = no key saved.
+     * Use AppSettings.keysFor(slot) to get the list of one slot.
+     */
+    val apiKeysList: List<String> get() = apiKeys[providerId] ?: emptyList()
+
+    /**
+     * The key that will be used for the NEXT request of the active
+     * provider — the first candidate of the rotation strategy. It is only
+     * a preview (the real pick happens in KeyRotation.withKeys, which also
+     * retries the next key when the server rejects it).
+     */
+    val apiKey: String get() = apiKeysList.firstOrNull() ?: ""
 }
 
 /**
@@ -193,6 +217,8 @@ object AppSettings {
     private const val K_PROVIDER = "provider_id"
     private const val K_BASE_URL = "base_url"
     private const val K_API_KEYS = "api_keys_json"
+    private const val K_KEY_ROTATION_STRATEGY = "key_rotation_strategy"
+    private const val K_KEY_ROTATION_STATE = "key_rotation_state"
     private const val K_MODEL = "model"
     private const val K_PROMPT = "system_prompt"
     private const val K_AUTO_START_VOICE = "auto_start_voice"
@@ -250,23 +276,58 @@ object AppSettings {
     private fun p(): SharedPreferences =
         prefs ?: throw IllegalStateException("AppSettings.init(context) was not called")
 
+    /**
+     * Parse the stored keys JSON. Supports BOTH formats:
+     *  - v2: {slot: ["key1", "key2"]}      (several keys per slot)
+     *  - v1: {slot: "key"}                 (one key per slot — migrated)
+     */
+    private fun parseKeys(keysJson: String): MutableMap<String, List<String>> {
+        val m = mutableMapOf<String, List<String>>()
+        try {
+            val obj = JSONObject(keysJson)
+            for (k in obj.keys()) {
+                when (val v = obj.get(k)) {
+                    is String -> if (v.isNotBlank()) m[k] = listOf(v)
+                    is org.json.JSONArray -> {
+                        val list = mutableListOf<String>()
+                        for (i in 0 until v.length()) {
+                            val s = v.optString(i)
+                            if (s.isNotBlank()) list.add(s)
+                        }
+                        if (list.isNotEmpty()) m[k] = list
+                    }
+                    else -> Unit
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return m
+    }
+
+    /** Serialize the keys map into the v2 format. */
+    private fun dumpKeys(keys: Map<String, List<String>>): String {
+        val obj = JSONObject()
+        keys.forEach { (slot, list) ->
+            val arr = org.json.JSONArray()
+            list.forEach { arr.put(it) }
+            obj.put(slot, arr)
+        }
+        return obj.toString()
+    }
+
     private fun load(): AppConfig {
         val p = p()
         val providerId = p.getString(K_PROVIDER, null) ?: LlmProviders.OPENROUTER.id
 
         val keysJson = p.getString(K_API_KEYS, null)
-        val keys: MutableMap<String, String> = if (keysJson != null) {
-            val obj = JSONObject(keysJson)
-            val m = mutableMapOf<String, String>()
-            for (k in obj.keys()) m[k] = obj.getString(k)
-            m
-        } else mutableMapOf()
+        val keys: MutableMap<String, List<String>> =
+            if (keysJson != null) parseKeys(keysJson) else mutableMapOf()
 
         // One-time migration from the old single-key field
         val legacy = p.getString(K_LEGACY_KEY, null)
-        if (!legacy.isNullOrBlank() && !keys.containsKey(providerId)) {
-            keys[providerId] = legacy
-            p.edit().putString(K_API_KEYS, JSONObject(keys).toString())
+        if (!legacy.isNullOrBlank() && keys[providerId].isNullOrEmpty()) {
+            keys[providerId] = listOf(legacy)
+            p.edit().putString(K_API_KEYS, dumpKeys(keys))
                 .remove(K_LEGACY_KEY).apply()
         }
 
@@ -275,6 +336,9 @@ object AppSettings {
             baseUrl = p.getString(K_BASE_URL, null)
                 ?: LlmProviders.byId(providerId).defaultBaseUrl,
             apiKeys = keys,
+            keyRotationStrategy = p.getString(K_KEY_ROTATION_STRATEGY, "round_robin")
+                ?: "round_robin",
+            keyRotationState = p.getString(K_KEY_ROTATION_STATE, "{}") ?: "{}",
             model = p.getString(K_MODEL, "") ?: "",
             systemPrompt = p.getString(K_PROMPT, null) ?: AppConfig().systemPrompt,
             autoStartVoice = p.getBoolean(K_AUTO_START_VOICE, true),
@@ -314,7 +378,9 @@ object AppSettings {
         p().edit()
             .putString(K_PROVIDER, next.providerId)
             .putString(K_BASE_URL, next.baseUrl)
-            .putString(K_API_KEYS, JSONObject(next.apiKeys).toString())
+            .putString(K_API_KEYS, dumpKeys(next.apiKeys))
+            .putString(K_KEY_ROTATION_STRATEGY, next.keyRotationStrategy)
+            .putString(K_KEY_ROTATION_STATE, next.keyRotationState)
             .putString(K_MODEL, next.model)
             .putString(K_PROMPT, next.systemPrompt)
             .putBoolean(K_AUTO_START_VOICE, next.autoStartVoice)
@@ -550,9 +616,45 @@ object AppSettings {
         }
     }
 
-    /** Save/replace the key of one provider without touching the others. */
-    fun setApiKey(providerId: String, key: String) = update {
-        it.copy(apiKeys = it.apiKeys + (providerId to key.trim()))
+    // ------------------------------------------------------- api key slots
+
+    /** ALL keys saved for one slot (provider id, "groq", "fish", ...). */
+    fun keysFor(slot: String): List<String> = _config.value.apiKeys[slot] ?: emptyList()
+
+    /** Add a key to a slot (duplicates are ignored). */
+    fun addApiKey(slot: String, key: String) {
+        val k = key.trim()
+        if (k.isEmpty()) return
+        update { c ->
+            val list = (c.apiKeys[slot] ?: emptyList()).toMutableList()
+            if (!list.contains(k)) list.add(k)
+            c.copy(apiKeys = c.apiKeys + (slot to list))
+        }
+    }
+
+    /** Remove ONE key from a slot (by value). */
+    fun removeApiKey(slot: String, key: String) = update { c ->
+        val list = (c.apiKeys[slot] ?: emptyList()).filter { it != key }
+        val next = if (list.isEmpty()) c.apiKeys - slot else c.apiKeys + (slot to list)
+        c.copy(apiKeys = next)
+    }
+
+    /** Replace the whole list of one slot. */
+    fun setApiKeys(slot: String, keys: List<String>) = update { c ->
+        val clean = keys.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val next = if (clean.isEmpty()) c.apiKeys - slot else c.apiKeys + (slot to clean)
+        c.copy(apiKeys = next)
+    }
+
+    /**
+     * Legacy single-key setter kept for compatibility: replaces the slot
+     * with exactly one key.
+     */
+    fun setApiKey(providerId: String, key: String) = setApiKeys(providerId, listOf(key))
+
+    /** The GLOBAL rotation strategy used for every slot. */
+    fun setKeyRotationStrategy(strategy: String) = update {
+        it.copy(keyRotationStrategy = strategy)
     }
 
     // ------------------------------------------------------ app whitelist

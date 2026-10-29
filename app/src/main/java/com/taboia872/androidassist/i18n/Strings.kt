@@ -289,6 +289,24 @@ object Strings {
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models"
 
+    // ---- key rotation / multiple keys per server ----
+    const val keysSaved = "keys saved"
+    const val addKey = "Add key"
+    const val noKeysSaved = "No keys saved yet"
+    const val keyNumber = "Key"
+    const val removeKeyQ = "Remove this key?"
+    const val removeKeyConfirm = "This key will be deleted from this server."
+    const val keyRotationTitle = "Key rotation"
+    const val keyRotationHint = "When a key is rejected (401/403/429), the app automatically tries the next one."
+    const val rotRoundRobin = "Round robin"
+    const val rotRoundRobinDesc = "Keep using the current key until it is exhausted, then move to the next"
+    const val rotRandom = "Random"
+    const val rotRandomDesc = "Pick a random key for every request"
+    const val rotLastUsed = "Last used"
+    const val rotLastUsedDesc = "Always start from the key used in the previous request"
+    const val rotLastUnused = "Last unused"
+    const val rotLastUnusedDesc = "Prefer the most recently added key that was never used"
+
     /** Lookup with pt-BR overrides. */
     fun t(key: String): String = when (com.taboia872.androidassist.settings.AppSettings.config.value.appLanguage) {
         "pt" -> pt(key)
@@ -575,6 +593,23 @@ object Strings {
         sortByCapability -> "Capacidades"
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
+
+        keysSaved -> "chaves salvas"
+        addKey -> "Adicionar chave"
+        noKeysSaved -> "Nenhuma chave salva ainda"
+        keyNumber -> "Chave"
+        removeKeyQ -> "Remover esta chave?"
+        removeKeyConfirm -> "Esta chave será apagada deste servidor."
+        keyRotationTitle -> "Rotação de chaves"
+        keyRotationHint -> "Quando uma chave é rejeitada (401/403/429), o app tenta a próxima automaticamente."
+        rotRoundRobin -> "Rodízio"
+        rotRoundRobinDesc -> "Continua usando a chave atual até ela acabar, depois passa para a próxima"
+        rotRandom -> "Aleatória"
+        rotRandomDesc -> "Escolhe uma chave aleatória a cada requisição"
+        rotLastUsed -> "Última utilizada"
+        rotLastUsedDesc -> "Começa sempre pela chave usada na requisição anterior"
+        rotLastUnused -> "Última não utilizada"
+        rotLastUnusedDesc -> "Prefere a chave adicionada por último que ainda não foi usada"
 
         else -> key
     }

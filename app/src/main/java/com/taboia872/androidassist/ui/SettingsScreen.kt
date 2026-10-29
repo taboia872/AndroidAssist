@@ -118,6 +118,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.taboia872.androidassist.llm.KeyRotation
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.memory.MemoryStore
@@ -240,9 +241,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     LaunchedEffect(settingsCategory) { settingsScrollState.scrollTo(0) }
 
     val keyStatus = if (provider.requiresKey) {
-        if (cfg.apiKey.isNotBlank()) "${provider.displayName} key saved"
+        val n = AppSettings.keysFor(provider.id).size
+        if (n > 0) "${provider.displayName} • $n ${Strings.t(Strings.keysSaved)}"
         else "${provider.displayName} key needed"
-    } else "No key required"
+    } else Strings.t(Strings.noKeyRequired)
 
     val modelLabel = cfg.model.ifBlank { "Select model" }
 
@@ -334,10 +336,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                         )
                         SettingsItem(
                             icon = Icons.Default.Key,
-                            title = "${provider.displayName} API Key",
-                            subtitle = if (cfg.apiKey.isNotBlank()) "Configured ✓"
-                            else if (provider.requiresKey) "Required • saved encrypted"
-                            else "Not required for this provider",
+                            title = "${provider.displayName} ${Strings.t(Strings.apiKeyItem)}",
+                            subtitle = if (AppSettings.keysFor(provider.id).isNotEmpty())
+                                "${AppSettings.keysFor(provider.id).size} ${Strings.t(Strings.keysSaved)}"
+                            else if (provider.requiresKey)
+                                Strings.t(Strings.requiredSavedEncrypted)
+                            else Strings.t(Strings.notRequiredProvider),
                             onClick = { showKeyDialog = true }
                         )
                         SettingsItem(
@@ -422,8 +426,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                             SettingsItem(
                                 icon = Icons.Default.Key,
                                 title = Strings.t(Strings.groqApiKey),
-                                subtitle = if ((cfg.apiKeys["groq"] ?: "").isNotBlank())
-                                    Strings.t(Strings.configured) else Strings.t(Strings.requiredForWhisper),
+                                subtitle = if (AppSettings.keysFor("groq").isNotEmpty())
+                                    "${AppSettings.keysFor("groq").size} ${Strings.t(Strings.keysSaved)}"
+                                else Strings.t(Strings.requiredForWhisper),
                                 onClick = { showVoiceGroqKeyDialog = true }
                             )
                         }
@@ -483,8 +488,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                             SettingsItem(
                                 icon = Icons.Default.Key,
                                 title = Strings.t(Strings.fishApiKey),
-                                subtitle = if ((cfg.apiKeys["fish"] ?: "").isNotBlank())
-                                    Strings.t(Strings.configured) else Strings.t(Strings.requiredFish),
+                                subtitle = if (AppSettings.keysFor("fish").isNotEmpty())
+                                    "${AppSettings.keysFor("fish").size} ${Strings.t(Strings.keysSaved)}"
+                                else Strings.t(Strings.requiredFish),
                                 onClick = { showFishKeyDialog = true }
                             )
                             SettingsItem(
@@ -547,8 +553,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                             SettingsItem(
                                 icon = Icons.Default.Key,
                                 title = "${engine.name} ${Strings.t(Strings.apiKeyItem)}",
-                                subtitle = if ((cfg.apiKeys[engine.keySlot] ?: "").isNotBlank())
-                                    Strings.t(Strings.configured)
+                                subtitle = if (AppSettings.keysFor(engine.keySlot).isNotEmpty())
+                                    "${AppSettings.keysFor(engine.keySlot).size} ${Strings.t(Strings.keysSaved)}"
                                 else engine.hint,
                                 onClick = { showSearchKeyDialog = true }
                             )
@@ -837,11 +843,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         ProviderKeyDialog(
             providerName = provider.displayName,
             hint = provider.keyHint,
-            hasExistingKey = cfg.apiKey.isNotBlank(),
-            onApiKeySaved = { key ->
-                AppSettings.setApiKey(provider.id, key)
-                showKeyDialog = false
-            },
+            slot = provider.id,
             onDismiss = { showKeyDialog = false }
         )
     }
@@ -861,6 +863,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         ModelSelectionDialog(
             baseUrl = cfg.baseUrl,
             apiKey = cfg.apiKey,
+            keySlot = provider.id,
             currentModel = cfg.model,
             onModelSelected = { modelId ->
                 AppSettings.update { it.copy(model = modelId) }
@@ -918,11 +921,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         ProviderKeyDialog(
             providerName = "Groq",
             hint = "Free at console.groq.com/keys",
-            hasExistingKey = (cfg.apiKeys["groq"] ?: "").isNotBlank(),
-            onApiKeySaved = { key ->
-                AppSettings.setApiKey("groq", key)
-                showVoiceGroqKeyDialog = false
-            },
+            slot = "groq",
             onDismiss = { showVoiceGroqKeyDialog = false }
         )
     }
@@ -942,11 +941,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         ProviderKeyDialog(
             providerName = "FishAudio",
             hint = "Create at fish.audio > API Keys (free dev tier available)",
-            hasExistingKey = (cfg.apiKeys["fish"] ?: "").isNotBlank(),
-            onApiKeySaved = { key ->
-                AppSettings.setApiKey("fish", key)
-                showFishKeyDialog = false
-            },
+            slot = "fish",
             onDismiss = { showFishKeyDialog = false }
         )
     }
@@ -989,15 +984,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     if (showSearchKeyDialog) {
         val engine = SearchEngines.byId(cfg.searchEngine)
         if (engine.keySlot != null) {
-            val slot = engine.keySlot
             ProviderKeyDialog(
                 providerName = engine.name,
                 hint = engine.hint,
-                hasExistingKey = (cfg.apiKeys[slot] ?: "").isNotBlank(),
-                onApiKeySaved = { key ->
-                    AppSettings.setApiKey(slot, key)
-                    showSearchKeyDialog = false
-                },
+                slot = engine.keySlot,
                 onDismiss = { showSearchKeyDialog = false }
             )
         }
@@ -1561,41 +1551,101 @@ private fun activeCustomEndpointId(): String {
     return AppSettings.customEndpointList().firstOrNull { it.baseUrl == cur }?.id ?: ""
 }
 
+/**
+ * API KEY MANAGER for one slot: several keys can be saved in the SAME
+ * server, and the rotation strategy decides which one is used.
+ *
+ * The dialog lists the saved keys (masked), lets the user add a new one,
+ * remove one, and pick the GLOBAL rotation strategy.
+ */
 @Composable
 private fun ProviderKeyDialog(
     providerName: String,
     hint: String,
-    hasExistingKey: Boolean,
-    onApiKeySaved: (String) -> Unit,
+    slot: String,
     onDismiss: () -> Unit
 ) {
-    var apiKey by remember { mutableStateOf("") }
+    val cfg by AppSettings.config.collectAsState()
+    val keys = AppSettings.keysFor(slot)
+    var newKey by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf<String?>(null) }
+    var showStrategy by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("$providerName ${Strings.t(Strings.apiKeyItem)}") },
         text = {
             Column {
-                if (hasExistingKey) {
-                    Text(
-                        Strings.t(Strings.anApiKeyIsConfigured),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
                 Text(
                     hint,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // --- rotation strategy -----------------------------------
+                SettingsItem(
+                    icon = Icons.Default.Tune,
+                    title = Strings.t(Strings.keyRotationTitle),
+                    subtitle = keyRotationDescription(cfg.keyRotationStrategy),
+                    onClick = { showStrategy = true },
+                    trailingArrow = true
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // --- saved keys ------------------------------------------
+                if (keys.isEmpty()) {
+                    Text(
+                        Strings.t(Strings.noKeysSaved),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    keys.forEachIndexed { index, key ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${Strings.t(Strings.keyNumber)} ${index + 1}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    if (visible) key else maskKey(key),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = {
+                                confirmDelete = key
+                            }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = Strings.t(Strings.remove)
+                                )
+                            }
+                        }
+                    }
+                    if (keys.size > 1) {
+                        Text(
+                            Strings.t(Strings.keyRotationHint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // --- add a new key ---------------------------------------
                 OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
+                    value = newKey,
+                    onValueChange = { newKey = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(Strings.t(Strings.apiKeyItem)) },
+                    label = { Text(Strings.t(Strings.addKey)) },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     visualTransformation = if (visible) VisualTransformation.None
@@ -1604,7 +1654,7 @@ private fun ProviderKeyDialog(
                         IconButton(onClick = { visible = !visible }) {
                             Icon(
                                 if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                "Toggle"
+                                contentDescription = Strings.t(Strings.toggle)
                             )
                         }
                     }
@@ -1613,12 +1663,112 @@ private fun ProviderKeyDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onApiKeySaved(apiKey) },
-                enabled = apiKey.isNotBlank()
-            ) { Text(Strings.t(Strings.save)) }
+                onClick = {
+                    if (newKey.isNotBlank()) {
+                        AppSettings.addApiKey(slot, newKey)
+                        newKey = ""
+                    }
+                },
+                enabled = newKey.isNotBlank()
+            ) { Text(Strings.t(Strings.addKey)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.cancel)) }
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.close)) }
+        }
+    )
+
+    if (confirmDelete != null) {
+        val keyToDelete = confirmDelete
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text(Strings.t(Strings.removeKeyQ)) },
+            text = { Text(Strings.t(Strings.removeKeyConfirm)) },
+            confirmButton = {
+                Button(onClick = {
+                    AppSettings.removeApiKey(slot, keyToDelete)
+                    confirmDelete = null
+                }) { Text(Strings.t(Strings.remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) {
+                    Text(Strings.t(Strings.cancel))
+                }
+            }
+        )
+    }
+
+    if (showStrategy) {
+        KeyRotationStrategyDialog(
+            current = cfg.keyRotationStrategy,
+            onStrategySelected = { s ->
+                AppSettings.setKeyRotationStrategy(s)
+                showStrategy = false
+            },
+            onDismiss = { showStrategy = false }
+        )
+    }
+}
+
+/** Human description of a rotation strategy. */
+private fun keyRotationDescription(strategy: String): String = when (strategy) {
+    KeyRotation.ROUND_ROBIN -> Strings.t(Strings.rotRoundRobinDesc)
+    KeyRotation.RANDOM -> Strings.t(Strings.rotRandomDesc)
+    KeyRotation.LAST_USED -> Strings.t(Strings.rotLastUsedDesc)
+    KeyRotation.LAST_UNUSED -> Strings.t(Strings.rotLastUnusedDesc)
+    else -> Strings.t(Strings.rotRoundRobinDesc)
+}
+
+/** Mask a key: keep the first 4 and the last 4 characters. */
+private fun maskKey(key: String): String {
+    if (key.length <= 10) return "•".repeat(key.length)
+    return key.take(4) + "…" + key.takeLast(4)
+}
+
+/** Picker of the GLOBAL key rotation strategy. */
+@Composable
+private fun KeyRotationStrategyDialog(
+    current: String,
+    onStrategySelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        KeyRotation.ROUND_ROBIN to Strings.t(Strings.rotRoundRobin),
+        KeyRotation.RANDOM to Strings.t(Strings.rotRandom),
+        KeyRotation.LAST_USED to Strings.t(Strings.rotLastUsed),
+        KeyRotation.LAST_UNUSED to Strings.t(Strings.rotLastUnused)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.t(Strings.keyRotationTitle)) },
+        text = {
+            Column {
+                options.forEach { (id, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onStrategySelected(id) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = current == id,
+                            onClick = { onStrategySelected(id) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(label, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                keyRotationDescription(id),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(Strings.t(Strings.close)) }
         }
     )
 }
@@ -1672,6 +1822,7 @@ private fun BaseUrlDialog(
 private fun ModelSelectionDialog(
     baseUrl: String,
     apiKey: String,
+    keySlot: String,
     currentModel: String,
     onModelSelected: (String) -> Unit,
     onDismiss: () -> Unit
@@ -1688,7 +1839,7 @@ private fun ModelSelectionDialog(
         loading = true
         error = null
         scope.launch {
-            ModelCatalog.fetch(baseUrl, apiKey, forceRefresh = force).fold(
+            ModelCatalog.fetch(baseUrl, apiKey, forceRefresh = force, slot = keySlot).fold(
                 onSuccess = { models = it },
                 onFailure = { error = it.message }
             )

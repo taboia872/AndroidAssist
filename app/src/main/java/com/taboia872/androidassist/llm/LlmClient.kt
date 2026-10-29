@@ -210,7 +210,8 @@ object LlmClient {
             emit(StreamEvent.Error("No model selected — open Settings."))
             return@flow
         }
-        if (LlmProviders.byId(cfg.providerId).requiresKey && cfg.apiKey.isBlank()) {
+        val keys = AppSettings.keysFor(cfg.providerId)
+        if (LlmProviders.byId(cfg.providerId).requiresKey && keys.isEmpty()) {
             emit(StreamEvent.Error("No API key configured — open Settings."))
             return@flow
         }
@@ -297,13 +298,72 @@ object LlmClient {
         // HttpURLConnection (not Https): custom endpoints may be plain http
         // (e.g. Ollama on http://192.168.0.10:11434/v1) and openConnection()
         // returns a plain connection for those.
-        val conn = Net.open("${cfg.baseUrl.trimEnd('/')}/chat/completions").apply {
-            requestMethod = "POST"
-            connectTimeout = 30_000
-            readTimeout = 120_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            if (cfg.apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer ${cfg.apiKey}")
+        //
+        // KEY ROTATION: the candidate keys of this provider are tried in the
+        // order of the global strategy. A key the server REJECTS (401/403/429)
+        // never aborts the request — the next candidate is tried and only
+        // when EVERY key fails the error surfaces.
+        val strategy = AppSettings.config.value.keyRotationStrategy
+        val slot = cfg.providerId
+        val candidateKeys = if (keys.isEmpty()) listOf("") else keys
+        val order = KeyRotation.candidates(slot, candidateKeys, strategy)
+
+        var conn: HttpURLConnection? = null
+        var chosenIdx = -1
+        var lastErr = ""
+        var lastCode = 0
+
+        for (idx in order) {
+            val key = candidateKeys[idx]
+            val c = Net.open("${cfg.baseUrl.trimEnd('/')}/chat/completions").apply {
+                requestMethod = "POST"
+                connectTimeout = 30_000
+                readTimeout = 120_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
+            }
+            try {
+                c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                if (c.responseCode == 200) {
+                    conn = c
+                    chosenIdx = idx
+                    break
+                }
+                val code = c.responseCode
+                val err = c.errorStream?.bufferedReader()?.readText()?.take(300) ?: "no body"
+                lastCode = code
+                lastErr = "HTTP $code: $err"
+                c.disconnect()
+                // 401/403/429 = the key was rejected or exhausted -> next one
+                if (code == 401 || code == 403 || code == 429) {
+                    KeyRotation.advanceOnFailure(slot, idx, strategy, candidateKeys.size)
+                    continue
+                }
+                // Any other HTTP error is not a key problem -> give up
+                emit(StreamEvent.Error(lastErr))
+                return@flow
+            } catch (e: Exception) {
+                try { c.disconnect() } catch (e2: Exception) { }
+                emit(StreamEvent.Error(e.message ?: e.javaClass.simpleName))
+                return@flow
+            }
+        }
+
+        val streamConn = conn
+        if (streamConn == null) {
+            // Every candidate key failed (401/403/429) — surface the last error
+            emit(
+                StreamEvent.Error(
+                    if (lastErr.isNotBlank()) lastErr
+                    else "HTTP $lastCode: no key worked"
+                )
+            )
+            return@flow
+        }
+        // Only real keys count for the rotation state (local servers have none)
+        if (chosenIdx >= 0 && keys.isNotEmpty()) {
+            KeyRotation.markUsed(slot, chosenIdx, strategy)
         }
 
         // Legacy text-format tool calls (some cloud models): buffered while a
@@ -315,17 +375,9 @@ object LlmClient {
         val pendingToolNames = mutableMapOf<Int, String>()
         val pendingToolArgs = mutableMapOf<Int, String>()
 
-        activeConn = conn
+        activeConn = streamConn
         try {
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-
-            if (conn.responseCode != 200) {
-                val err = conn.errorStream?.bufferedReader()?.readText()?.take(300) ?: "no body"
-                emit(StreamEvent.Error("HTTP ${conn.responseCode}: $err"))
-                return@flow
-            }
-
-            BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
+            BufferedReader(InputStreamReader(streamConn.inputStream)).use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     val l = line ?: continue
@@ -400,7 +452,7 @@ object LlmClient {
             emit(StreamEvent.Error(e.message ?: e.javaClass.simpleName))
         } finally {
             activeConn = null
-            conn.disconnect()
+            streamConn.disconnect()
         }
     }.flowOn(Dispatchers.IO)
 
