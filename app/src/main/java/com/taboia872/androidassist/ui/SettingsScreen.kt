@@ -630,7 +630,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                                     icon = icon,
                                     title = Strings.t(titleKey),
                                     subtitle = Strings.t(Strings.abilityIndependentSub),
-                                    checked = AppSettings.abilityEnabled(abilityId),
+                                    // Derived from the OBSERVED config so the
+                                    // switch reflects the stored value on
+                                    // every recomposition.
+                                    checked = AppSettings.abilityEnabled(
+                                        abilityId, cfg.deviceToolToggles
+                                    ),
                                     onCheckedChange = { on ->
                                         AppSettings.setAbilityEnabled(abilityId, on)
                                     }

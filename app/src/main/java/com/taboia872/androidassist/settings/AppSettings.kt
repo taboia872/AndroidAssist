@@ -748,11 +748,19 @@ object AppSettings {
     /**
      * Is this Android ability available to the model? Needs BOTH the master
      * switch (deviceToolsEnabled) AND the ability's own switch.
+     *
+     * [togglesJson] is the raw map from the observed config — passing it
+     * keeps the UI reactive (the switch re-reads the value on every
+     * recomposition instead of reading the flow imperatively).
      */
-    fun abilityEnabled(abilityId: String): Boolean {
+    fun abilityEnabled(abilityId: String, togglesJson: String): Boolean {
         if (!_config.value.deviceToolsEnabled) return false
-        return abilityToggles()[abilityId] ?: true
+        return parseAbilityToggles(togglesJson)[abilityId] ?: true
     }
+
+    /** Same check, reading the live config directly (non-UI callers). */
+    fun abilityEnabled(abilityId: String): Boolean =
+        abilityEnabled(abilityId, _config.value.deviceToolToggles)
 
     /** Turn one ability on/off (its own switch; the master stays untouched). */
     fun setAbilityEnabled(abilityId: String, enabled: Boolean) = update { c ->
