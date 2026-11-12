@@ -459,6 +459,39 @@ object AppSettings {
     /** All saved personas. */
     fun personas(): List<Persona> = loadPersonas()
 
+    /** Replace the whole persona list (backup restore). */
+    fun replacePersonas(list: List<Persona>) {
+        savePersonas(list)
+    }
+
+    /**
+     * Apply a persona's PROFILE to the live config — the same slice
+     * [switchPersona] applies, but WITHOUT changing the active persona id.
+     * Used by the backup restore: the backed-up profile (prompt, model,
+     * voice in/out) really takes effect.
+     */
+    fun applyPersonaProfile(p: Persona) = update { c ->
+        c.copy(
+            systemPrompt = p.systemPrompt,
+            providerId = p.providerId,
+            baseUrl = p.baseUrl,
+            model = p.model,
+            webSearchEnabled = p.webSearchEnabled,
+            searchEngine = p.searchEngine,
+            ttsEnabled = p.ttsEnabled,
+            ttsMethod = p.ttsMethod,
+            fishModel = p.fishModel,
+            fishVoiceId = p.fishVoiceId,
+            fishVoiceName = p.fishVoiceName,
+            voiceMethod = p.voiceMethod,
+            whisperModel = p.whisperModel,
+            voiceLanguage = p.voiceLanguage,
+            ttsLanguage = p.ttsLanguage,
+            autoStartVoice = p.autoStartVoice,
+            autoSendVoice = p.autoSendVoice
+        )
+    }
+
     /**
      * Snapshot the CURRENT config as a new persona. Returns the created id.
      * The new persona becomes active immediately.

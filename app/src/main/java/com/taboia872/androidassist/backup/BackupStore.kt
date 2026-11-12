@@ -11,21 +11,28 @@ import java.io.File
 
 /**
  * FRACTIONAL backup: the user picks WHAT to export — memories, provider
- * keys, system prompt, or chats — each into its own single JSON file via
- * the system file picker (SAF). Restore merges/replaces per kind.
+ * keys, personas (the profile: config + persona prompt), or chats — each
+ * into its own single JSON file via the system file picker (SAF). Restore
+ * merges/replaces per kind.
  *
  * File envelope: {format, kind, app, exported, data}
  *  - memories:  data = [ {id,kind,text,trigger,schedule,source,created} ]
- *  - keys:       data = {providerId, apiKeys:{slot:key}, customEndpoints}
- *  - prompt:     data = {systemPrompt, activePersonaPrompt?}
+ *  - keys:       data = {providerId, apiKeys:{slot:[keys]}, customEndpoints}
+ *  - personas:   data = { activePersonaId, current:{persona fields},
+ *                          personas:[{persona fields}] }
  *  - chats:      data = [ {id,title,timestamp,messages:[{role,content,image,blocks:[...]}]} ]
+ *
+ * LEGACY: the old "prompt" kind (system prompt only) is still IMPORTED —
+ * it restores the system prompt and nothing else.
  */
 object BackupStore {
 
     const val KIND_MEMORIES = "memories"
     const val KIND_KEYS = "keys"
-    const val KIND_PROMPT = "prompt"
+    const val KIND_PERSONAS = "personas"
     const val KIND_CHATS = "chats"
+    /** Legacy kind — import only (the system prompt alone). */
+    const val KIND_PROMPT = "prompt"
 
     // ------------------------------------------------------------- export
 
@@ -33,7 +40,7 @@ object BackupStore {
         val data = when (kind) {
             KIND_MEMORIES -> exportMemories(context)
             KIND_KEYS -> exportKeys()
-            KIND_PROMPT -> exportPrompt()
+            KIND_PERSONAS -> exportPersonas()
             KIND_CHATS -> exportChats(context)
             else -> throw IllegalArgumentException("unknown kind $kind")
         }
@@ -77,9 +84,25 @@ object BackupStore {
         }
     }
 
-    private fun exportPrompt(): JSONObject {
+    /**
+     * PERSONAS: the full profile — the ACTIVE persona (name, model, prompt,
+     * voice in/out) plus every saved persona. The "current" entry is the
+     * live config exported AS a persona, so an unsaved setup is backed up
+     * too (the old "prompt" backup only saved the system prompt).
+     */
+    private fun exportPersonas(): JSONObject {
+        val cfg = AppSettings.config.value
+        val current = com.taboia872.androidassist.settings.Persona.fromConfig(
+            id = cfg.activePersonaId.ifBlank { "current" },
+            name = AppSettings.activePersonaName(),
+            c = cfg
+        )
+        val arr = JSONArray()
+        AppSettings.personas().forEach { arr.put(it.toJson()) }
         return JSONObject().apply {
-            put("systemPrompt", AppSettings.config.value.systemPrompt)
+            put("activePersonaId", cfg.activePersonaId)
+            put("current", current.toJson())
+            put("personas", arr)
         }
     }
 
@@ -194,8 +217,43 @@ object BackupStore {
         }
     }
 
-    /** Restore prompt: REPLACE the system prompt (a prompt backup is the
-     *  whole point — restore means adopt it). */
+    /**
+     * Restore personas: the saved list is MERGED by id (existing personas
+     * keep their contents — importing never destroys a persona the user
+     * already has) and the "current" profile (config + prompt + voice
+     * in/out of the ACTIVE persona) is APPLIED to the live config, so the
+     * restored profile really takes effect.
+     */
+    fun restorePersonas(data: JSONObject) {
+        // 1. merge the saved personas by id
+        val arr = data.optJSONArray("personas")
+        if (arr != null) {
+            val existing = AppSettings.personas()
+            val byId = existing.associateBy { it.id }.toMutableMap()
+            var changed = false
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val p = com.taboia872.androidassist.settings.Persona.fromJson(o) ?: continue
+                if (!byId.containsKey(p.id)) {
+                    byId[p.id] = p
+                    changed = true
+                }
+            }
+            if (changed) AppSettings.replacePersonas(byId.values.toList())
+        }
+        // 2. apply the backed-up profile to the live config
+        val current = data.optJSONObject("current")
+            ?: data.optJSONObject("active")
+        if (current != null) {
+            val p = com.taboia872.androidassist.settings.Persona.fromJson(current)
+            if (p != null) AppSettings.applyPersonaProfile(p)
+        }
+    }
+
+    /**
+     * Restore the LEGACY "prompt" backup: the system prompt only.
+     * REPLACES the prompt (a prompt backup is the whole point).
+     */
     fun restorePrompt(data: JSONObject) {
         val prompt = data.optString("systemPrompt")
         if (prompt.isNotBlank()) {
