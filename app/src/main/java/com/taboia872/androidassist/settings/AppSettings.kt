@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.taboia872.androidassist.llm.LlmProviders
+import com.taboia872.androidassist.tools.ToolAbility
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
@@ -78,6 +79,19 @@ data class AppConfig(
     val appTheme: String = "",
     /** Device tools (alarm, timer, calendar, open app, clipboard, share) */
     val deviceToolsEnabled: Boolean = true,
+    /**
+     * Per-ability switches for the Android abilities (JSON map:
+     * ability id -> enabled). A MISSING id means ENABLED, so installs that
+     * never touched the switches keep every ability available.
+     * [deviceToolsEnabled] is the master switch for the whole group.
+     */
+    val deviceToolToggles: String = "{}",
+    /**
+     * Memory tools (save_memory / search_memories / forget_memory) — INDEPENDENT
+     * from the device tools: turning the Android abilities off must NOT kill
+     * the user's memories (same class of bug as the web-search gate).
+     */
+    val memoryToolsEnabled: Boolean = true,
     /**
      * Calendar save mode: "direct" writes straight into the selected system
      * calendar (hands-free, needs WRITE_CALENDAR); "confirm" opens the
@@ -242,6 +256,8 @@ object AppSettings {
     private const val K_APP_THEME = "app_theme"
     private const val K_NO_THINK = "no_think"
     private const val K_DEVICE_TOOLS = "device_tools"
+    private const val K_DEVICE_TOOL_TOGGLES = "device_tool_toggles"
+    private const val K_MEMORY_TOOLS = "memory_tools"
     private const val K_CALENDAR_MODE = "calendar_mode"
     private const val K_DEFAULT_CALENDAR = "default_calendar_id"
     private const val K_ALLOWED_APPS = "allowed_apps"
@@ -363,6 +379,8 @@ object AppSettings {
             appTheme = p.getString(K_APP_THEME, "") ?: "",
             noThink = p.getBoolean(K_NO_THINK, false),
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
+            deviceToolToggles = p.getString(K_DEVICE_TOOL_TOGGLES, "{}") ?: "{}",
+            memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
             calendarMode = p.getString(K_CALENDAR_MODE, "direct") ?: "direct",
             defaultCalendarId = p.getLong(K_DEFAULT_CALENDAR, 0),
             allowedApps = p.getString(K_ALLOWED_APPS, "[]") ?: "[]",
@@ -404,6 +422,8 @@ object AppSettings {
             .putString(K_APP_THEME, next.appTheme)
             .putBoolean(K_NO_THINK, next.noThink)
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
+            .putString(K_DEVICE_TOOL_TOGGLES, next.deviceToolToggles)
+            .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
             .putString(K_CALENDAR_MODE, next.calendarMode)
             .putLong(K_DEFAULT_CALENDAR, next.defaultCalendarId)
             .putString(K_ALLOWED_APPS, next.allowedApps)
@@ -672,5 +692,55 @@ object AppSettings {
         val arr = org.json.JSONArray()
         cur.forEach { arr.put(it) }
         update { it.copy(allowedApps = arr.toString()) }
+    }
+
+    // ------------------------------------------------- per-ability toggles
+
+    /**
+     * The per-ability switch map (ability id -> enabled). A MISSING id means
+     * ENABLED — only the abilities the user explicitly turned off are false.
+     */
+    fun abilityToggles(): Map<String, Boolean> = try {
+        val obj = JSONObject(_config.value.deviceToolToggles)
+        val out = mutableMapOf<String, Boolean>()
+        for (k in obj.keys()) out[k] = obj.optBoolean(k, true)
+        out
+    } catch (e: Exception) {
+        emptyMap()
+    }
+
+    /**
+     * Is this Android ability available to the model? Needs BOTH the master
+     * switch (deviceToolsEnabled) AND the ability's own switch.
+     */
+    fun abilityEnabled(abilityId: String): Boolean {
+        if (!_config.value.deviceToolsEnabled) return false
+        return abilityToggles()[abilityId] ?: true
+    }
+
+    /** Turn one ability on/off (its own switch; the master stays untouched). */
+    fun setAbilityEnabled(abilityId: String, enabled: Boolean) = update { c ->
+        val map = abilityToggles().toMutableMap()
+        map[abilityId] = enabled
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k, v) }
+        c.copy(deviceToolToggles = obj.toString())
+    }
+
+    /** Is this tool function allowed right now? */
+    fun toolAllowed(toolName: String): Boolean {
+        if (toolName == "web_search") return _config.value.webSearchEnabled
+        if (toolName in ToolAbility.MEMORY_TOOLS) return _config.value.memoryToolsEnabled
+        val ability = ToolAbility.of(toolName) ?: return false
+        return abilityEnabled(ability)
+    }
+
+    /** Any tool at all available? (drives whether the request declares tools) */
+    fun anyToolEnabled(): Boolean {
+        val c = _config.value
+        if (c.webSearchEnabled) return true
+        if (c.memoryToolsEnabled) return true
+        if (!c.deviceToolsEnabled) return false
+        return ToolAbility.TOOLS.keys.any { abilityEnabled(it) }
     }
 }

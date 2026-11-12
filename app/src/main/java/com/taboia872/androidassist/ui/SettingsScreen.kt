@@ -37,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
@@ -54,11 +56,16 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -125,6 +132,7 @@ import com.taboia872.androidassist.memory.MemoryStore
 import com.taboia872.androidassist.llm.ModelInfo
 import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tools.ToolAbility
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import com.taboia872.androidassist.tts.FishVoice
@@ -137,6 +145,21 @@ private enum class SettingsCategory(val label: String) {
     TOOLS(Strings.t(Strings.toolsTab)),
     SYSTEM(Strings.t(Strings.systemTab))
 }
+
+/**
+ * The Android abilities, each with its OWN switch (Tools tab). The order
+ * here is the order shown in the UI. Ids match ToolAbility.
+ */
+private val abilityRows: List<Triple<String, ImageVector, String>> = listOf(
+    Triple(ToolAbility.ALARM, Icons.Default.Alarm, Strings.abilityAlarm),
+    Triple(ToolAbility.TIMER, Icons.Default.Timer, Strings.abilityTimer),
+    Triple(ToolAbility.CALENDAR, Icons.Default.Event, Strings.abilityCalendar),
+    Triple(ToolAbility.OPEN_APP, Icons.Default.Apps, Strings.abilityOpenApp),
+    Triple(ToolAbility.CLIPBOARD, Icons.Default.ContentCopy, Strings.abilityClipboard),
+    Triple(ToolAbility.SHARE, Icons.Default.Share, Strings.abilityShare),
+    Triple(ToolAbility.LOCATION, Icons.Default.LocationOn, Strings.abilityLocation),
+    Triple(ToolAbility.MAP, Icons.Default.Map, Strings.abilityMap)
+)
 
 /**
  * Settings in the base app's visual language: overview card on top, category
@@ -585,6 +608,30 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 AppSettings.update { it.copy(deviceToolsEnabled = on) }
                             }
                         )
+                        // ---- Per-ability switches: each Android skill is
+                        // INDEPENDENT (user request). Visible only when the
+                        // master switch is on.
+                        if (cfg.deviceToolsEnabled) {
+                            Text(
+                                Strings.t(Strings.abilitiesLabel),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    start = 28.dp, end = 28.dp, top = 12.dp, bottom = 2.dp
+                                )
+                            )
+                            abilityRows.forEach { (abilityId, icon, titleKey) ->
+                                SettingsItemWithSwitch(
+                                    icon = icon,
+                                    title = Strings.t(titleKey),
+                                    subtitle = Strings.t(Strings.abilityIndependentSub),
+                                    checked = AppSettings.abilityEnabled(abilityId),
+                                    onCheckedChange = { on ->
+                                        AppSettings.setAbilityEnabled(abilityId, on)
+                                    }
+                                )
+                            }
+                        }
                         SettingsItem(
                             icon = Icons.Default.Event,
                             title = Strings.t(Strings.calendarModeLabel),
@@ -593,8 +640,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                             else Strings.t(Strings.calendarModeConfirm),
                             onClick = { showCalendarModeDialog = true }
                         )
-                        SettingsItem(
+                        SettingsItemWithSwitch(
                             icon = Icons.Default.Psychology,
+                            title = Strings.t(Strings.memoryToolsLabel),
+                            subtitle = Strings.t(Strings.memoryToolsSub),
+                            checked = cfg.memoryToolsEnabled,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(memoryToolsEnabled = on) }
+                            }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Save,
                             title = Strings.t(Strings.memoriesLabel),
                             subtitle = Strings.t(Strings.memoriesHint),
                             onClick = { showMemoriesDialog = true }

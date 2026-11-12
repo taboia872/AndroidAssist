@@ -2,6 +2,7 @@ package com.taboia872.androidassist.llm
 
 import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tools.ToolAbility
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -95,9 +96,12 @@ object LlmClient {
     /**
      * Device tool specs (Tier 1+2): local actions executed on the phone via
      * Android Intents. Declared whenever deviceToolsEnabled is on.
+     *
+     * Each spec carries the ABILITY it belongs to, so the user can switch
+     * them ONE BY ONE (alarm without location, clipboard without map...).
      */
-    private fun deviceToolSpecs(): List<JSONObject> = listOf(
-        tool(
+    private fun deviceToolSpecs(): List<Pair<String, JSONObject>> = listOf(
+        ToolAbility.ALARM to tool(
             "set_alarm",
             "Set an alarm on the user's phone. Use for wake-up alarms and reminders at a specific TIME of day.",
             "label" to "Short alarm label/message",
@@ -108,7 +112,7 @@ object LlmClient {
                 "days" to ("array" to "Repeat days as strings: mon,tue,wed,thu,fri,sat,sun. Empty = one-time alarm")
             )
         ),
-        tool(
+        ToolAbility.TIMER to tool(
             "set_timer",
             "Start a countdown timer on the user's phone (e.g. 'remind me in 10 minutes', '5 minute egg timer').",
             "label" to "Short timer label",
@@ -116,7 +120,7 @@ object LlmClient {
                 "seconds" to ("integer" to "Total duration in seconds")
             )
         ),
-        tool(
+        ToolAbility.CALENDAR to tool(
             "add_calendar_event",
             "Open a new calendar event pre-filled on the user's calendar app. The user reviews and saves it there.",
             "title" to "Event title",
@@ -128,35 +132,35 @@ object LlmClient {
                 "description" to ("string" to "Optional event description/location")
             )
         ),
-        tool(
+        ToolAbility.OPEN_APP to tool(
             "open_app",
             "Open an installed app on the user's phone by name (e.g. WhatsApp, Spotify, Camera).",
             "app_name" to "App name as the user said it",
             required = listOf("app_name")
         ),
-        tool(
+        ToolAbility.CLIPBOARD to tool(
             "read_clipboard",
             "Read the current clipboard text (e.g. when the user says 'translate this' or 'what does this say' with content copied).",
             "_" to "No parameters needed"
         ),
-        tool(
+        ToolAbility.CLIPBOARD to tool(
             "add_to_clipboard",
             "Copy text to the clipboard so the user can paste it anywhere.",
             "text" to "The exact text to copy",
             required = listOf("text")
         ),
-        tool(
+        ToolAbility.SHARE to tool(
             "share_text",
             "Open the Android share sheet with the given text so the user can send it to any app (WhatsApp, Telegram, email...).",
             "text" to "The text to share",
             required = listOf("text")
         ),
-        tool(
+        ToolAbility.LOCATION to tool(
             "get_location",
             "Get the user's approximate current location (latitude/longitude, ~city block accuracy). Use it for local questions: transit (bus/metro stops and schedules), nearby places, weather. Coordinates are approximate and stay private.",
             "_" to "No parameters needed"
         ),
-        tool(
+        ToolAbility.MAP to tool(
             "open_map",
             "Open a point on the map in the user's preferred map app (a chooser appears if several are installed). Use after get_location when the user wants to SEE a place.",
             "latitude" to "Latitude of the point",
@@ -165,7 +169,14 @@ object LlmClient {
                 "longitude" to ("number" to "Longitude of the point"),
                 "label" to ("string" to "Short place label shown on the map pin")
             )
-        ),
+        )
+    )
+
+    /**
+     * Memory tool specs — their OWN group, independent from the Android
+     * abilities and from the web search.
+     */
+    private fun memoryToolSpecs(): List<JSONObject> = listOf(
         tool(
             "save_memory",
             "Save a lasting memory about the user. ONLY for durable information: standing instructions (kind=core: how you must behave with this user), explicit tastes/preferences expressed as SHORT phrases (kind=preference), or stable world facts (kind=fact: numbers, names, schedules, addresses). NEVER save task content, transient state or anything the user asked you to just do once. Check the wording with the user's own phrasing. At most ONE save per turn.",
@@ -189,17 +200,22 @@ object LlmClient {
 
     /**
      * Streaming chat completion with FUNCTION CALLING when the server
-     * supports it: the web_search tool is declared up front; if the model
+     * supports it: the enabled tools are declared up front; if the model
      * wants fresh facts it emits a tool_call delta instead of guessing.
      * [toolsEnabled] gates the declaration; [toolExchanges] replays every
      * completed tool exchange (assistant tool_call + result) so the model
-     * can search MULTIPLE times per turn.
+     * can chain MULTIPLE tools per turn.
+     *
+     * [allowWebSearch] is false on every round after the first: the web
+     * search runs at most once per turn, but the Android abilities and the
+     * memory tools stay declared.
      */
     fun chat(
         messages: List<Triple<String, String, String?>>,
         systemPrompt: String,
         toolsEnabled: Boolean = false,
-        toolExchanges: List<ToolExchange> = emptyList()
+        toolExchanges: List<ToolExchange> = emptyList(),
+        allowWebSearch: Boolean = true
     ): Flow<StreamEvent> = flow {
         val cfg = AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
@@ -227,7 +243,9 @@ object LlmClient {
             }
             if (toolsEnabled) {
                 val specs = JSONArray()
-                if (AppSettings.config.value.webSearchEnabled) {
+                // Each tool group is INDEPENDENT: turning the web search off
+                // must NOT hide the Android abilities, and vice-versa.
+                if (allowWebSearch && AppSettings.config.value.webSearchEnabled) {
                     specs.put(tool(
                         "web_search",
                         "Search the web for current information (news, prices, weather, " +
@@ -236,8 +254,13 @@ object LlmClient {
                         required = listOf("query")
                     ))
                 }
-                if (AppSettings.config.value.deviceToolsEnabled) {
-                    deviceToolSpecs().forEach { specs.put(it) }
+                // Android abilities — ONE BY ONE (the user can switch each).
+                deviceToolSpecs().forEach { (ability, spec) ->
+                    if (AppSettings.abilityEnabled(ability)) specs.put(spec)
+                }
+                // Memory tools — their own group.
+                if (AppSettings.config.value.memoryToolsEnabled) {
+                    memoryToolSpecs().forEach { specs.put(it) }
                 }
                 if (specs.length() > 0) {
                     put("tools", specs)

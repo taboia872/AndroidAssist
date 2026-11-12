@@ -14,6 +14,7 @@ import com.taboia872.androidassist.search.SearchEngines
 import com.taboia872.androidassist.search.SearchOutcome
 import com.taboia872.androidassist.memory.MemoryStore
 import com.taboia872.androidassist.tools.DeviceTools
+import com.taboia872.androidassist.tools.ToolAbility
 import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.tts.FishTts
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +61,16 @@ data class ChatMessage(
  * each event its own block, nothing ever merges across kinds.
  */
 class ChatSession(private val persistenceContext: android.content.Context? = null) {
+
+    companion object {
+        /**
+         * How many tool rounds ONE turn may run. The web search only fires in
+         * the first round; the Android abilities can chain (alarm, then open
+         * app, then calendar) up to this limit — enough for any realistic
+         * request, small enough to stop a model that loops.
+         */
+        const val MAX_TOOL_ROUNDS = 4
+    }
 
     /**
      * OWN app-lifetime scope. Streaming and the end-of-turn save MUST NOT
@@ -234,19 +245,42 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
             // Snapshot BEFORE the turn streams: every round replays the same
             // conversation + ALL completed tool exchanges (multi-search loop).
-            val useTools = AppSettings.config.value.webSearchEnabled
+            //
+            // TOOL GROUPS ARE INDEPENDENT: the request declares tools when ANY
+            // group is on (web search, Android abilities, memories). The old
+            // gate used webSearchEnabled alone, so turning the search off
+            // also hid EVERY Android tool from the model (user report).
+            val useTools = AppSettings.anyToolEnabled()
             val history = messages.map { Triple(it.role, it.answerText, it.imageBase64) }
 
 
             var searchNotice: String? = null
-            // ---- Single search round: tools declared; if the model calls,
-            //      run the search and replay with the result attached. ----
-            val callId = streamRound(history, basePrompt, useTools)
-            if (callId != null) {
+            // ---- Tool rounds: the model declares a tool, we run it and
+            //      replay the answer with the result attached. Up to
+            //      MAX_TOOL_ROUNDS rounds so several abilities can fire in
+            //      one turn (alarm AND open app). The WEB SEARCH only runs
+            //      in the FIRST round (no search-retry loop — user request).
+            var callId = streamRound(history, basePrompt, useTools, allowWebSearch = true)
+            var toolRound = 0
+            while (callId != null && toolRound < MAX_TOOL_ROUNDS) {
+                toolRound++
                 val toolName = pendingToolName
+                // What the model wrote BEFORE this tool call (per round).
+                val assistantContent = roundAnswerText()
                 val toolHeader: String
                 val toolResult: String
-                if (toolName == "web_search") {
+                val knownTool = toolName == "web_search" ||
+                    toolName in ToolAbility.MEMORY_TOOLS ||
+                    ToolAbility.of(toolName) != null
+                if (knownTool && !AppSettings.toolAllowed(toolName)) {
+                    // The user switched this ability OFF: refuse with an
+                    // explanation instead of running it.
+                    toolHeader = "\ud83d\udd12 $toolName"
+                    toolResult = "The tool '$toolName' is DISABLED by the user " +
+                        "(Settings > Tools). Do NOT use it and do NOT pretend it " +
+                        "worked — tell the user it is turned off."
+                    addBlock("tool", toolHeader, "")
+                } else if (toolName == "web_search") {
                     status = Strings.t(Strings.searching)
                     val searchQuery = try {
                         org.json.JSONObject(pendingToolArgs).optString("query", "").ifBlank { q }
@@ -285,8 +319,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     }
                     toolHeader = "\ud83d\udd0d $searchQuery"
                     addBlock("tool", toolHeader, detailForUser)
-                } else if (toolName == "save_memory" || toolName == "search_memories" ||
-                    toolName == "forget_memory") {
+                } else if (toolName in ToolAbility.MEMORY_TOOLS) {
                     // MEMORY TOOLS: local storage — no device Intent.
                     val c = ctx
                     if (c != null) {
@@ -314,10 +347,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                                 }
                                 toolHeader = "\ud83d\udd0e " + q0.ifBlank { "\u2026" }
                                 toolResult = if (hits.isEmpty()) {
-                                    "No memories match '" + q0 + "'."
+                                    "No memories match '$q0'."
                                 } else {
                                     "Memories found:\n" + hits.joinToString("\n") {
-                                        "[" + it.kind + "] " + it.text + " (id " + it.id + ")"
+                                        "[${it.kind}] ${it.text} (id ${it.id})"
                                     }
                                 }
                                 addBlock("tool", toolHeader, toolResult)
@@ -328,8 +361,8 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                                     MemoryStore.forget(c, target)
                                 }
                                 toolHeader = "\ud83e\udde9 " + target.take(60)
-                                toolResult = if (gone) "Memory deleted: '" + target + "'."
-                                else "No memory matched '" + target + "' — nothing deleted."
+                                toolResult = if (gone) "Memory deleted: '$target'."
+                                else "No memory matched '$target' — nothing deleted."
                                 addBlock("tool", toolHeader, "")
                             }
                             else -> {
@@ -368,11 +401,19 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 toolExchanges.add(ToolExchange(
                     callId = callId,
                     callName = toolName,
-                    assistantContent = answerBeforeTool(),
+                    assistantContent = assistantContent,
                     result = toolResult
                 ))
-                // Final round with the tool result attached
-                streamRound(history, basePrompt, toolsEnabled = false)
+                // Next round: the abilities stay declared (the model may call
+                // another one), but the web search does NOT (single search
+                // per turn).
+                callId = streamRound(history, basePrompt, useTools, allowWebSearch = false)
+            }
+            // Round limit reached with a tool call still pending: ask the
+            // model for a final answer WITHOUT tools, so the turn always
+            // ends with a reply instead of a dangling call.
+            if (callId != null) {
+                streamRound(history, basePrompt, toolsEnabled = false, allowWebSearch = false)
             }
 
             // Search failure notice for the USER (last timeline block)
@@ -445,25 +486,36 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     /** Completed tool exchanges of the CURRENT turn (multi-search loop). */
     private val toolExchanges = mutableListOf<ToolExchange>()
 
+    /** Answer text streamed in the CURRENT round (reset at every round). */
+    private var roundAnswer = ""
+
     /**
      * Stream one round into the turn timeline. Returns the tool call id when
-     * the model wants to search (call captured in the pendingTool* fields),
+     * the model wants a tool (call captured in the pendingTool* fields),
      * or null when the round finished without a tool call.
+     *
+     * [allowWebSearch] is false on every round AFTER the first one: the web
+     * search runs at most once per turn, but the Android abilities stay
+     * available so the model can chain them (alarm + open app).
      */
     private suspend fun streamRound(
         history: List<Triple<String, String, String?>>,
         basePrompt: String,
-        toolsEnabled: Boolean
+        toolsEnabled: Boolean,
+        allowWebSearch: Boolean
     ): String? {
         var callId: String? = null
         pendingToolId = ""
         pendingToolName = ""
         pendingToolArgs = ""
+        // Content streamed in THIS round (before a possible tool call).
+        roundAnswer = ""
         LlmClient.chat(
             history,
             basePrompt,
             toolsEnabled = toolsEnabled,
-            toolExchanges = this.toolExchanges
+            toolExchanges = this.toolExchanges,
+            allowWebSearch = allowWebSearch
         ).collect { event ->
             when (event) {
                 is StreamEvent.Reasoning -> {
@@ -472,6 +524,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 }
                 is StreamEvent.Content -> {
                     status = Strings.t(Strings.typing)
+                    roundAnswer += event.text
                     streamAppend("answer", event.text)
                 }
                 is StreamEvent.ToolCall -> {
@@ -531,13 +584,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         }
     }
 
-    /** Answer text streamed so far in the CURRENT turn (for tool replay). */
-    private fun answerBeforeTool(): String {
-        if (turnMsgIdx !in messages.indices) return ""
-        return messages[turnMsgIdx].blocks
-            .filter { it.kind == "answer" }
-            .joinToString("\n\n") { it.text }
-    }
+    /**
+     * The answer text streamed in the CURRENT round (for the tool replay).
+     * Per round, not per turn: in a chained turn (alarm then open app) each
+     * tool call carries only what the model wrote before IT.
+     */
+    private fun roundAnswerText(): String = roundAnswer
 }
 
 /**
