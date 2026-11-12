@@ -733,8 +733,11 @@ object AppSettings {
      * The per-ability switch map (ability id -> enabled). A MISSING id means
      * ENABLED — only the abilities the user explicitly turned off are false.
      */
-    fun abilityToggles(): Map<String, Boolean> = try {
-        val obj = JSONObject(_config.value.deviceToolToggles)
+    fun abilityToggles(): Map<String, Boolean> = parseAbilityToggles(_config.value.deviceToolToggles)
+
+    /** Parse the ability map from a raw JSON string. */
+    private fun parseAbilityToggles(json: String): Map<String, Boolean> = try {
+        val obj = JSONObject(json)
         val out = mutableMapOf<String, Boolean>()
         for (k in obj.keys()) out[k] = obj.optBoolean(k, true)
         out
@@ -753,7 +756,7 @@ object AppSettings {
 
     /** Turn one ability on/off (its own switch; the master stays untouched). */
     fun setAbilityEnabled(abilityId: String, enabled: Boolean) = update { c ->
-        val map = abilityToggles().toMutableMap()
+        val map = parseAbilityToggles(c.deviceToolToggles).toMutableMap()
         map[abilityId] = enabled
         val obj = JSONObject()
         map.forEach { (k, v) -> obj.put(k, v) }
