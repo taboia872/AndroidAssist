@@ -300,7 +300,7 @@ object Strings {
     const val sortByContext = "Context"
     const val sortByCapability = "Capabilities"
     const val noThinkLabel = "No-think mode"
-    const val noThinkSub = "Answer directly, without reasoning — faster on local models"
+    const val noThinkSub = "Answer directly, without reasoning — faster on local models. Only local models are affected: cloud models keep thinking on their own."
 
     // ---- key rotation / multiple keys per server ----
     const val keysSaved = "keys saved"
@@ -618,7 +618,7 @@ object Strings {
         sortByContext -> "Contexto"
         sortByCapability -> "Capacidades"
         noThinkLabel -> "Modo sem pensamento"
-        noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais"
+        noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais. Só modelos locais são afetados: modelos na nuvem continuam pensando por conta própria."
 
         keysSaved -> "chaves salvas"
         addKey -> "Adicionar chave"

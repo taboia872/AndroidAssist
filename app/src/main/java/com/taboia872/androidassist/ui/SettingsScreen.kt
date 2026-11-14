@@ -50,7 +50,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
@@ -68,7 +67,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Mic
@@ -809,52 +807,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                             onClick = { showAccentDialog = true }
                         )
                     }
-                    SettingsSection(title = Strings.t(Strings.backupSection)) {
-                        // Fractional backup: each kind is its own file (user
-                        // request) — export/import ICONS per kind (the texts
-                        // "Exportar"/"Importar" became icons).
-                        listOf(
-                            BackupStore.KIND_PERSONAS to Strings.t(Strings.backupPersonas),
-                            BackupStore.KIND_MEMORIES to Strings.t(Strings.backupMemories),
-                            BackupStore.KIND_KEYS to Strings.t(Strings.backupKeys),
-                            BackupStore.KIND_CHATS to Strings.t(Strings.backupChats)
-                        ).forEach { (kind, label) ->
-                            // date stamp computed once (remember in a loop is fragile)
-                            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm")
-                                .format(java.util.Date())
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 22.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(onClick = {
-                                    pendingBackupKind = kind
-                                    exportLauncher.launch(
-                                        "androidassist-backup-$kind-$stamp.json"
-                                    )
-                                }) {
-                                    Icon(
-                                        Icons.Default.Upload,
-                                        contentDescription = Strings.t(Strings.backupExport),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = { importLauncher.launch(arrayOf("application/json")) }) {
-                                    Icon(
-                                        Icons.Default.Download,
-                                        contentDescription = Strings.t(Strings.backupImport),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
 
                     SettingsSection(title = Strings.t(Strings.appLanguage)) {
                         SettingsItem(
@@ -897,6 +849,13 @@ fun SettingsScreen(onBack: () -> Unit) {
                             )
                         }
                     }
+                    BackupSection(
+                        onExport = { kind, fileName ->
+                            pendingBackupKind = kind
+                            exportLauncher.launch(fileName)
+                        },
+                        onImport = { importLauncher.launch(arrayOf("application/json")) }
+                    )
 
                 }
 
