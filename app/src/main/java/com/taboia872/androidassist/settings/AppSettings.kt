@@ -107,6 +107,13 @@ data class AppConfig(
      */
     val maxContextTurns: Int = 0,
     /**
+     * How long a SILENCE must last to end the voice capture (ms).
+     * Lower = the recording stops sooner (useful in noisy rooms where
+     * the pause is hard to detect); higher = waits longer for the user
+     * to finish the sentence. Clamped to 500..5000 by the callers.
+     */
+    val voiceSilenceMs: Int = 1500,
+    /**
      * Calendar save mode: "direct" writes straight into the selected system
      * calendar (hands-free, needs WRITE_CALENDAR); "confirm" opens the
      * calendar app pre-filled (no permission). DIRECT only shows in the
@@ -274,6 +281,7 @@ object AppSettings {
     private const val K_MEMORY_TOOLS = "memory_tools"
     private const val K_MAX_TOOL_CALLS = "max_tool_calls"
     private const val K_MAX_CONTEXT_TURNS = "max_context_turns"
+    private const val K_VOICE_SILENCE_MS = "voice_silence_ms"
     private const val K_CALENDAR_MODE = "calendar_mode"
     private const val K_DEFAULT_CALENDAR = "default_calendar_id"
     private const val K_ALLOWED_APPS = "allowed_apps"
@@ -399,6 +407,7 @@ object AppSettings {
             memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
             maxToolCalls = p.getInt(K_MAX_TOOL_CALLS, 4),
             maxContextTurns = p.getInt(K_MAX_CONTEXT_TURNS, 0),
+            voiceSilenceMs = p.getInt(K_VOICE_SILENCE_MS, 1500),
             calendarMode = p.getString(K_CALENDAR_MODE, "direct") ?: "direct",
             defaultCalendarId = p.getLong(K_DEFAULT_CALENDAR, 0),
             allowedApps = p.getString(K_ALLOWED_APPS, "[]") ?: "[]",
@@ -444,6 +453,7 @@ object AppSettings {
             .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
             .putInt(K_MAX_TOOL_CALLS, next.maxToolCalls)
             .putInt(K_MAX_CONTEXT_TURNS, next.maxContextTurns)
+            .putInt(K_VOICE_SILENCE_MS, next.voiceSilenceMs)
             .putString(K_CALENDAR_MODE, next.calendarMode)
             .putLong(K_DEFAULT_CALENDAR, next.defaultCalendarId)
             .putString(K_ALLOWED_APPS, next.allowedApps)

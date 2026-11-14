@@ -305,6 +305,9 @@ object Strings {
     const val maxToolCallsLabel = "Tool calls per turn"
     const val maxToolCallsSub = "How many tools the model may use in one message"
     const val maxContextTurnsLabel = "Context turns"
+    const val voiceSilenceLabel = "Silence to finish"
+    const val voiceSilenceSub = "How long a pause must be to end the recording"
+    const val secondsShort = "s"
     const val allTurns = "All"
     const val turns = "turns"
 
@@ -629,6 +632,9 @@ object Strings {
         maxToolCallsLabel -> "Chamadas de ferramenta por turno"
         maxToolCallsSub -> "Quantas ferramentas o modelo pode usar em uma mensagem"
         maxContextTurnsLabel -> "Turnos de contexto"
+        voiceSilenceLabel -> "Silêncio para finalizar"
+        voiceSilenceSub -> "Quanto tempo de pausa encerra a gravação"
+        secondsShort -> "s"
         allTurns -> "Todos"
         turns -> "turnos"
 

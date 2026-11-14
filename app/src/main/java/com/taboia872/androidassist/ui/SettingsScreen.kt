@@ -264,6 +264,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showSearchCountDialog by remember { mutableStateOf(false) }
     var showMaxToolCallsDialog by remember { mutableStateOf(false) }
     var showMaxContextTurnsDialog by remember { mutableStateOf(false) }
+    var showVoiceSilenceDialog by remember { mutableStateOf(false) }
     var showSearchRegionDialog by remember { mutableStateOf(false) }
     var showSearchFreshnessDialog by remember { mutableStateOf(false) }
 
@@ -468,6 +469,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                             title = Strings.t(Strings.recognitionLanguage),
                             subtitle = cfg.voiceLanguage.ifBlank { Strings.t(Strings.systemDefault) },
                             onClick = { showVoiceLangDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Schedule,
+                            title = Strings.t(Strings.voiceSilenceLabel),
+                            subtitle = Strings.t(Strings.voiceSilenceSub) + " • " +
+                                (cfg.voiceSilenceMs / 1000.0).toString().replace(".0", "") +
+                                " " + Strings.t(Strings.secondsShort),
+                            onClick = { showVoiceSilenceDialog = true }
                         )
                         if (cfg.voiceMethod != "system") {
                             SettingsItem(
@@ -1159,6 +1168,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                 showMaxContextTurnsDialog = false
             },
             onDismiss = { showMaxContextTurnsDialog = false }
+        )
+    }
+
+    if (showVoiceSilenceDialog) {
+        VoiceSilenceDialog(
+            current = cfg.voiceSilenceMs,
+            onSelected = { n ->
+                AppSettings.update { it.copy(voiceSilenceMs = n) }
+                showVoiceSilenceDialog = false
+            },
+            onDismiss = { showVoiceSilenceDialog = false }
         )
     }
     if (showSearchRegionDialog) {

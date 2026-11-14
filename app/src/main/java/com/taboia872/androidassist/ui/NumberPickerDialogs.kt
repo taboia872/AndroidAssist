@@ -96,3 +96,25 @@ private fun MaxContextTurnsDialog(
         onDismiss = onDismiss
     )
 }
+
+/**
+ * Silence window that ends the voice capture: 0.5s..5s.
+ * Lower = the recording stops sooner (noisy rooms where the pause is
+ * hard to detect); higher = waits longer for the user to finish.
+ */
+@Composable
+private fun VoiceSilenceDialog(
+    current: Int,
+    onSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000)
+        .map { ms -> ms to (ms / 1000.0).toString().replace(".0", "") + " " + Strings.t(Strings.secondsShort) }
+    NumberPickerDialog(
+        title = Strings.t(Strings.voiceSilenceLabel),
+        options = options,
+        current = current,
+        onSelected = onSelected,
+        onDismiss = onDismiss
+    )
+}

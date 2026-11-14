@@ -111,7 +111,14 @@ object SystemRecognizer {
             // End-of-speech silence threshold: NOT in the public constant
             // list on all API levels — use the string literal (it is a
             // plain intent extra key, stable since API 8).
-            putExtra("android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_THRESHOLD_MILLIS", 2000L)
+            // The window comes from the user setting (voiceSilenceMs) so
+            // the same "how long is a pause" control drives both engines.
+            val silenceMs = com.taboia872.androidassist.settings.AppSettings
+                .config.value.voiceSilenceMs.coerceIn(500, 5_000).toLong()
+            putExtra(
+                "android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_THRESHOLD_MILLIS",
+                silenceMs
+            )
         }
         recognizer.startListening(intent)
     }

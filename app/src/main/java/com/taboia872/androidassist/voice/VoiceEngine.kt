@@ -12,12 +12,19 @@ import java.util.Locale
 import kotlin.math.sqrt
 
 /**
- * Online voice input: mic capture with a simple energy VAD (silence stops
+ * Online voice input: mic capture with an energy VAD (silence stops
  * recording, like the base app's flow) and transcription via Groq's
  * Whisper API using the Groq API key already stored in AppSettings.
  *
  * Deliberately NO SpeechRecognizer/system recognizer: this phase is online-
  * only with Groq, per project decisions.
+ *
+ * NOISE ROBUSTNESS (user report — noisy rooms never ended the capture):
+ * a FIXED energy threshold cannot tell speech from a loud background, so
+ * the recorder kept running (and the transcript kept growing) until the
+ * hard cap. The VAD now uses an ADAPTIVE threshold: the noise floor is
+ * measured from the first frames and the speech threshold floats above it.
+ * The silence window that ends the capture is a user setting.
  */
 object VoiceEngine {
 
@@ -25,10 +32,28 @@ object VoiceEngine {
     private const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
     private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
 
-    // VAD tuning: after speech started, this much trailing silence ends it
-    private const val SILENCE_END_MS = 1_500L
+    // VAD tuning: the trailing silence that ends the capture comes from
+    // the user setting (voiceSilenceMs); this is the hard cap on the
+    // whole take, so a stuck VAD can never record forever.
     private const val MAX_RECORD_MS = 30_000L
-    private const val ENERGY_THRESHOLD = 600.0
+    /**
+     * Absolute floor for the speech threshold (RMS). Below this the
+     * environment is quiet enough that a fixed threshold is fine.
+     */
+    private const val ENERGY_THRESHOLD_MIN = 600.0
+    /**
+     * How far above the measured noise floor the threshold sits. 2.2x
+     * ignores steady background noise (fans, traffic, people talking far
+     * away) while still catching speech.
+     */
+    private const val NOISE_FLOOR_FACTOR = 2.2
+    /**
+     * CEILING for the threshold (RMS). It stops a wrong floor estimate
+     * (e.g. the user started talking before the calibration settled)
+     * from pushing the threshold above the human voice — with the cap,
+     * speech is always detected and the capture can always end.
+     */
+    private const val THRESHOLD_CEILING = 3_000.0
 
     /** Microphone permission present? Cheap pre-check before launching UI. */
     fun hasMicPermission(context: Context): Boolean =
@@ -66,11 +91,20 @@ object VoiceEngine {
                 return@Thread
             }
 
+            val cfg = com.taboia872.androidassist.settings.AppSettings.config.value
+            // How long a silence must last to end the capture (user setting).
+            val silenceEndMs = cfg.voiceSilenceMs
+                .coerceIn(500, 5_000)
+                .toLong()
+
             val pcm = ByteArrayOutputStream()
             val chunk = ShortArray(SAMPLE_RATE / 10) // 100ms
             var speechStarted = false
             var silenceStart = -1L
             val startedAt = System.currentTimeMillis()
+            // Adaptive threshold state
+            var minRms = Double.MAX_VALUE
+            var threshold = ENERGY_THRESHOLD_MIN
 
             record.startRecording()
             try {
@@ -82,13 +116,26 @@ object VoiceEngine {
                     val rms = sqrt(sum / n)
                     onLevel(rms)
 
-                    if (rms > ENERGY_THRESHOLD) {
+                    // ---- Noise floor calibration: the quietest moment seen
+                    // so far is the floor, so a burst of speech can never
+                    // pollute it (the threshold would climb above the
+                    // voice and the capture would never end).
+                    if (!speechStarted) {
+                        if (rms < minRms) minRms = rms
+                        val floor = if (minRms < Double.MAX_VALUE) minRms else rms
+                        threshold = maxOf(
+                            ENERGY_THRESHOLD_MIN,
+                            minOf(floor * NOISE_FLOOR_FACTOR, THRESHOLD_CEILING)
+                        )
+                    }
+
+                    if (rms > threshold) {
                         speechStarted = true
                         silenceStart = -1
                     } else if (speechStarted) {
                         val now = System.currentTimeMillis()
                         if (silenceStart < 0) silenceStart = now
-                        if (now - silenceStart >= SILENCE_END_MS) break
+                        if (now - silenceStart >= silenceEndMs) break
                     }
                     if (System.currentTimeMillis() - startedAt > MAX_RECORD_MS) break
 
