@@ -148,18 +148,69 @@ private enum class SettingsCategory(val label: String) {
 }
 
 /**
- * The Android abilities, each with its OWN switch (Tools tab). The order
- * here is the order shown in the UI. Ids match ToolAbility.
+ * One Android ability row: (ability id, icon, title key, description key).
+ * The description explains what the tool DOES — the user asked for a
+ * short description of every tool.
  */
-private val abilityRows: List<Triple<String, ImageVector, String>> = listOf(
-    Triple(ToolAbility.ALARM, Icons.Default.Alarm, Strings.abilityAlarm),
-    Triple(ToolAbility.TIMER, Icons.Default.Timer, Strings.abilityTimer),
-    Triple(ToolAbility.CALENDAR, Icons.Default.Event, Strings.abilityCalendar),
-    Triple(ToolAbility.OPEN_APP, Icons.Default.Apps, Strings.abilityOpenApp),
-    Triple(ToolAbility.CLIPBOARD, Icons.Default.ContentCopy, Strings.abilityClipboard),
-    Triple(ToolAbility.SHARE, Icons.Default.Share, Strings.abilityShare),
-    Triple(ToolAbility.LOCATION, Icons.Default.LocationOn, Strings.abilityLocation),
-    Triple(ToolAbility.MAP, Icons.Default.Map, Strings.abilityMap)
+private data class AbilityRow(
+    val id: String,
+    val icon: ImageVector,
+    val titleKey: String,
+    val descKey: String
+)
+
+/**
+ * The Android abilities GROUPED BY TYPE (Tools tab). Each group is its
+ * own section, so the user sees what belongs together:
+ *
+ *   Alarme e timer   -> things that wake you up / count down
+ *   Agenda           -> calendar events
+ *   Apps e conteúdo  -> opening apps, clipboard, sharing
+ *   Localização      -> where you are + maps
+ *
+ * Ids match ToolAbility.
+ */
+private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
+    Strings.abilityGroupAlerts to listOf(
+        AbilityRow(
+            ToolAbility.ALARM, Icons.Default.Alarm,
+            Strings.abilityAlarm, Strings.abilityAlarmDesc
+        ),
+        AbilityRow(
+            ToolAbility.TIMER, Icons.Default.Timer,
+            Strings.abilityTimer, Strings.abilityTimerDesc
+        )
+    ),
+    Strings.abilityGroupAgenda to listOf(
+        AbilityRow(
+            ToolAbility.CALENDAR, Icons.Default.Event,
+            Strings.abilityCalendar, Strings.abilityCalendarDesc
+        )
+    ),
+    Strings.abilityGroupApps to listOf(
+        AbilityRow(
+            ToolAbility.OPEN_APP, Icons.Default.Apps,
+            Strings.abilityOpenApp, Strings.abilityOpenAppDesc
+        ),
+        AbilityRow(
+            ToolAbility.CLIPBOARD, Icons.Default.ContentCopy,
+            Strings.abilityClipboard, Strings.abilityClipboardDesc
+        ),
+        AbilityRow(
+            ToolAbility.SHARE, Icons.Default.Share,
+            Strings.abilityShare, Strings.abilityShareDesc
+        )
+    ),
+    Strings.abilityGroupPlace to listOf(
+        AbilityRow(
+            ToolAbility.LOCATION, Icons.Default.LocationOn,
+            Strings.abilityLocation, Strings.abilityLocationDesc
+        ),
+        AbilityRow(
+            ToolAbility.MAP, Icons.Default.Map,
+            Strings.abilityMap, Strings.abilityMapDesc
+        )
+    )
 )
 
 /**
@@ -586,11 +637,21 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }
 
                 if (settingsCategory == SettingsCategory.TOOLS) {
+                    // ====================================================
+                    // TOOLS TAB — grouped by TYPE (user request):
+                    //   1. Internet (web search)
+                    //   2. Android abilities — one switch + description
+                    //      per skill, grouped by category
+                    //   3. Memories
+                    //   4. Web search parameters
+                    // ====================================================
+
+                    // ---- 1. INTERNET -------------------------------------
                     SettingsSection(title = Strings.t(Strings.webSearchSection)) {
                         SettingsItemWithSwitch(
                             icon = Icons.Default.TravelExplore,
                             title = Strings.t(Strings.searchTheWeb),
-                            subtitle = "${Strings.t(Strings.freshFacts)} • ${SearchEngines.byId(cfg.searchEngine).name}",
+                            subtitle = Strings.t(Strings.searchTheWebDesc),
                             checked = cfg.webSearchEnabled,
                             onCheckedChange = { enabled ->
                                 AppSettings.update { c -> c.copy(webSearchEnabled = enabled) }
@@ -631,6 +692,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     }
 
+                    // ---- 2. ANDROID ABILITIES -----------------------------
                     SettingsSection(title = Strings.t(Strings.deviceToolsLabel)) {
                         SettingsItemWithSwitch(
                             icon = Icons.Default.Build,
@@ -641,35 +703,41 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 AppSettings.update { it.copy(deviceToolsEnabled = on) }
                             }
                         )
-                        // ---- Per-ability switches: each Android skill is
-                        // INDEPENDENT (user request). Visible only when the
-                        // master switch is on.
+                        // Each ability has its OWN switch and a short
+                        // description of what it does. Groups are rendered
+                        // as sub-headings inside the section.
                         if (cfg.deviceToolsEnabled) {
-                            Text(
-                                Strings.t(Strings.abilitiesLabel),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(
-                                    start = 28.dp, end = 28.dp, top = 12.dp, bottom = 2.dp
+                            abilityGroups.forEach { (groupTitleKey, rows) ->
+                                Text(
+                                    Strings.t(groupTitleKey),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(
+                                        start = 28.dp, end = 28.dp, top = 14.dp, bottom = 2.dp
+                                    )
                                 )
-                            )
-                            abilityRows.forEach { (abilityId, icon, titleKey) ->
-                                SettingsItemWithSwitch(
-                                    icon = icon,
-                                    title = Strings.t(titleKey),
-                                    subtitle = Strings.t(Strings.abilityIndependentSub),
-                                    // Derived from the OBSERVED config so the
-                                    // switch reflects the stored value on
-                                    // every recomposition.
-                                    checked = AppSettings.abilityEnabled(
-                                        abilityId, cfg.deviceToolToggles
-                                    ),
-                                    onCheckedChange = { on ->
-                                        AppSettings.setAbilityEnabled(abilityId, on)
-                                    }
-                                )
+                                rows.forEach { row ->
+                                    SettingsItemWithSwitch(
+                                        icon = row.icon,
+                                        title = Strings.t(row.titleKey),
+                                        subtitle = Strings.t(row.descKey),
+                                        // Derived from the OBSERVED config so
+                                        // the switch reflects the stored value
+                                        // on every recomposition.
+                                        checked = AppSettings.abilityEnabled(
+                                            row.id, cfg.deviceToolToggles
+                                        ),
+                                        onCheckedChange = { on ->
+                                            AppSettings.setAbilityEnabled(row.id, on)
+                                        }
+                                    )
+                                }
                             }
                         }
+                    }
+
+                    // ---- 3. AGENDA (calendar specifics) -------------------
+                    SettingsSection(title = Strings.t(Strings.abilityGroupAgenda)) {
                         SettingsItem(
                             icon = Icons.Default.Event,
                             title = Strings.t(Strings.calendarModeLabel),
@@ -677,33 +745,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 Strings.t(Strings.calendarModeDirect)
                             else Strings.t(Strings.calendarModeConfirm),
                             onClick = { showCalendarModeDialog = true }
-                        )
-                        SettingsItemWithSwitch(
-                            icon = Icons.Default.Psychology,
-                            title = Strings.t(Strings.memoryToolsLabel),
-                            subtitle = Strings.t(Strings.memoryToolsSub),
-                            checked = cfg.memoryToolsEnabled,
-                            onCheckedChange = { on ->
-                                AppSettings.update { it.copy(memoryToolsEnabled = on) }
-                            }
-                        )
-                        SettingsItem(
-                            icon = Icons.Default.Save,
-                            title = Strings.t(Strings.memoriesLabel),
-                            subtitle = Strings.t(Strings.memoriesHint),
-                            onClick = { showMemoriesDialog = true }
-                        )
-                        SettingsItem(
-                            icon = Icons.Default.Apps,
-                            title = Strings.t(Strings.allowedAppsLabel),
-                            subtitle = cfg.allowedApps.let {
-                                try {
-                                    val arr = org.json.JSONArray(it)
-                                    if (arr.length() == 0) Strings.t(Strings.allowedAppsAll)
-                                    else "${arr.length()} " + Strings.t(Strings.allowedAppsCount)
-                                } catch (e: Exception) { Strings.t(Strings.allowedAppsAll) }
-                            },
-                            onClick = { showAppWhitelistDialog = true }
                         )
                         if (cfg.calendarMode == "direct") {
                             SettingsItem(
@@ -729,8 +770,40 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 }
                             )
                         }
+                        SettingsItem(
+                            icon = Icons.Default.Apps,
+                            title = Strings.t(Strings.allowedAppsLabel),
+                            subtitle = cfg.allowedApps.let {
+                                try {
+                                    val arr = org.json.JSONArray(it)
+                                    if (arr.length() == 0) Strings.t(Strings.allowedAppsAll)
+                                    else "${arr.length()} " + Strings.t(Strings.allowedAppsCount)
+                                } catch (e: Exception) { Strings.t(Strings.allowedAppsAll) }
+                            },
+                            onClick = { showAppWhitelistDialog = true }
+                        )
                     }
 
+                    // ---- 4. MEMORIES --------------------------------------
+                    SettingsSection(title = Strings.t(Strings.memoriesLabel)) {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Psychology,
+                            title = Strings.t(Strings.memoryToolsLabel),
+                            subtitle = Strings.t(Strings.memoryToolsSub),
+                            checked = cfg.memoryToolsEnabled,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(memoryToolsEnabled = on) }
+                            }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.Save,
+                            title = Strings.t(Strings.memoriesManageLabel),
+                            subtitle = Strings.t(Strings.memoriesHint),
+                            onClick = { showMemoriesDialog = true }
+                        )
+                    }
+
+                    // ---- 5. WEB SEARCH PARAMETERS -------------------------
                     SettingsSection(title = Strings.t(Strings.searchParamsSection)) {
                         SettingsItem(
                             icon = Icons.Default.Tune,
