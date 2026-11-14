@@ -1423,7 +1423,7 @@ private fun SettingsStatusChip(
 }
 
 @Composable
-private fun SettingsSection(
+fun SettingsSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {

@@ -26,7 +26,7 @@ import com.taboia872.androidassist.i18n.Strings
  * an option may carry its own label (for "0 = everything").
  */
 @Composable
-private fun NumberPickerDialog(
+fun NumberPickerDialog(
     title: String,
     options: List<Pair<Int, String>>,
     current: Int,
@@ -63,7 +63,7 @@ private fun NumberPickerDialog(
  * Tool calls per turn: 1..8 (the hard ceiling the app enforces).
  */
 @Composable
-private fun MaxToolCallsDialog(
+fun MaxToolCallsDialog(
     current: Int,
     onSelected: (Int) -> Unit,
     onDismiss: () -> Unit
@@ -81,7 +81,7 @@ private fun MaxToolCallsDialog(
  * Context turns kept in the request: 0 (everything) or 2..20 turns.
  */
 @Composable
-private fun MaxContextTurnsDialog(
+fun MaxContextTurnsDialog(
     current: Int,
     onSelected: (Int) -> Unit,
     onDismiss: () -> Unit
@@ -103,7 +103,7 @@ private fun MaxContextTurnsDialog(
  * hard to detect); higher = waits longer for the user to finish.
  */
 @Composable
-private fun VoiceSilenceDialog(
+fun VoiceSilenceDialog(
     current: Int,
     onSelected: (Int) -> Unit,
     onDismiss: () -> Unit

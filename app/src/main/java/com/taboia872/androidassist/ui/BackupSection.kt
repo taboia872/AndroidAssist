@@ -30,7 +30,7 @@ import com.taboia872.androidassist.i18n.Strings
  * separate, recognizable JSON.
  */
 @Composable
-private fun BackupSection(
+fun BackupSection(
     onExport: (kind: String, fileName: String) -> Unit,
     onImport: () -> Unit
 ) {
