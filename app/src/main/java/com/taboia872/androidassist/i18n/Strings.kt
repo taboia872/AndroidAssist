@@ -301,6 +301,12 @@ object Strings {
     const val sortByCapability = "Capabilities"
     const val noThinkLabel = "No-think mode"
     const val noThinkSub = "Answer directly, without reasoning — faster on local models. Only local models are affected: cloud models keep thinking on their own."
+    const val limitsSection = "Limits"
+    const val maxToolCallsLabel = "Tool calls per turn"
+    const val maxToolCallsSub = "How many tools the model may use in one message"
+    const val maxContextTurnsLabel = "Context turns"
+    const val allTurns = "All"
+    const val turns = "turns"
 
     // ---- key rotation / multiple keys per server ----
     const val keysSaved = "keys saved"
@@ -619,6 +625,12 @@ object Strings {
         sortByCapability -> "Capacidades"
         noThinkLabel -> "Modo sem pensamento"
         noThinkSub -> "Responder direto, sem raciocínio — mais rápido em modelos locais. Só modelos locais são afetados: modelos na nuvem continuam pensando por conta própria."
+        limitsSection -> "Limites"
+        maxToolCallsLabel -> "Chamadas de ferramenta por turno"
+        maxToolCallsSub -> "Quantas ferramentas o modelo pode usar em uma mensagem"
+        maxContextTurnsLabel -> "Turnos de contexto"
+        allTurns -> "Todos"
+        turns -> "turnos"
 
         keysSaved -> "chaves salvas"
         addKey -> "Adicionar chave"

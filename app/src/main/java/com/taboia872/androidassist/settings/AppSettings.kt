@@ -93,6 +93,20 @@ data class AppConfig(
      */
     val memoryToolsEnabled: Boolean = true,
     /**
+     * How many TOOL CALLS the model may make in ONE turn (rounds of
+     * function calling). 1 = a single tool per turn; higher lets the
+     * model chain (alarm, then open app, then calendar). The web search
+     * always runs at most once per turn regardless of this value.
+     */
+    val maxToolCalls: Int = 4,
+    /**
+     * How many conversation TURNS (user+assistant exchanges) are kept in
+     * the context sent to the model. Older turns are dropped from the
+     * prompt (the chat file keeps everything). 0 = send everything.
+     * Lower values = shorter prompt = faster and cheaper on local models.
+     */
+    val maxContextTurns: Int = 0,
+    /**
      * Calendar save mode: "direct" writes straight into the selected system
      * calendar (hands-free, needs WRITE_CALENDAR); "confirm" opens the
      * calendar app pre-filled (no permission). DIRECT only shows in the
@@ -258,6 +272,8 @@ object AppSettings {
     private const val K_DEVICE_TOOLS = "device_tools"
     private const val K_DEVICE_TOOL_TOGGLES = "device_tool_toggles"
     private const val K_MEMORY_TOOLS = "memory_tools"
+    private const val K_MAX_TOOL_CALLS = "max_tool_calls"
+    private const val K_MAX_CONTEXT_TURNS = "max_context_turns"
     private const val K_CALENDAR_MODE = "calendar_mode"
     private const val K_DEFAULT_CALENDAR = "default_calendar_id"
     private const val K_ALLOWED_APPS = "allowed_apps"
@@ -381,6 +397,8 @@ object AppSettings {
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
             deviceToolToggles = p.getString(K_DEVICE_TOOL_TOGGLES, "{}") ?: "{}",
             memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
+            maxToolCalls = p.getInt(K_MAX_TOOL_CALLS, 4),
+            maxContextTurns = p.getInt(K_MAX_CONTEXT_TURNS, 0),
             calendarMode = p.getString(K_CALENDAR_MODE, "direct") ?: "direct",
             defaultCalendarId = p.getLong(K_DEFAULT_CALENDAR, 0),
             allowedApps = p.getString(K_ALLOWED_APPS, "[]") ?: "[]",
@@ -424,6 +442,8 @@ object AppSettings {
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
             .putString(K_DEVICE_TOOL_TOGGLES, next.deviceToolToggles)
             .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
+            .putInt(K_MAX_TOOL_CALLS, next.maxToolCalls)
+            .putInt(K_MAX_CONTEXT_TURNS, next.maxContextTurns)
             .putString(K_CALENDAR_MODE, next.calendarMode)
             .putLong(K_DEFAULT_CALENDAR, next.defaultCalendarId)
             .putString(K_ALLOWED_APPS, next.allowedApps)

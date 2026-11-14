@@ -64,12 +64,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
     companion object {
         /**
-         * How many tool rounds ONE turn may run. The web search only fires in
-         * the first round; the Android abilities can chain (alarm, then open
-         * app, then calendar) up to this limit — enough for any realistic
-         * request, small enough to stop a model that loops.
+         * HARD ceiling for tool calls per turn — the user setting
+         * (AppSettings.maxToolCalls) is clamped to this range, so a
+         * misconfigured value can never make the app loop forever.
          */
-        const val MAX_TOOL_ROUNDS = 4
+        const val MAX_TOOL_CALLS_HARD_LIMIT = 8
     }
 
     /**
@@ -251,18 +250,26 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // gate used webSearchEnabled alone, so turning the search off
             // also hid EVERY Android tool from the model (user report).
             val useTools = AppSettings.anyToolEnabled()
-            val history = messages.map { Triple(it.role, it.answerText, it.imageBase64) }
+            // How many tool calls this turn may make (user setting).
+            val maxToolCalls = AppSettings.config.value.maxToolCalls
+                .coerceIn(1, MAX_TOOL_CALLS_HARD_LIMIT)
+            // How many conversation turns go into the context (user setting).
+            // 0 = send everything.
+            val maxContextTurns = AppSettings.config.value.maxContextTurns
+                .coerceAtLeast(0)
+            val history = buildHistory(messages, maxContextTurns)
 
 
             var searchNotice: String? = null
             // ---- Tool rounds: the model declares a tool, we run it and
             //      replay the answer with the result attached. Up to
-            //      MAX_TOOL_ROUNDS rounds so several abilities can fire in
-            //      one turn (alarm AND open app). The WEB SEARCH only runs
-            //      in the FIRST round (no search-retry loop — user request).
+            //      maxToolCalls rounds (user setting) so several abilities
+            //      can fire in one turn (alarm AND open app). The WEB
+            //      SEARCH only runs in the FIRST round (no search-retry
+            //      loop — user request).
             var callId = streamRound(history, basePrompt, useTools, allowWebSearch = true)
             var toolRound = 0
-            while (callId != null && toolRound < MAX_TOOL_ROUNDS) {
+            while (callId != null && toolRound < maxToolCalls) {
                 toolRound++
                 val toolName = pendingToolName
                 // What the model wrote BEFORE this tool call (per round).
@@ -590,6 +597,26 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * tool call carries only what the model wrote before IT.
      */
     private fun roundAnswerText(): String = roundAnswer
+
+    /**
+     * The conversation history sent to the model, limited to the last
+     * [maxTurns] conversation turns (user+assistant exchanges).
+     *
+     * 0 = send everything. The chat FILE keeps every message — this only
+     * trims what goes into the request, so a long chat does not grow the
+     * prompt forever (faster and cheaper on local models).
+     */
+    private fun buildHistory(
+        all: List<ChatMessage>,
+        maxTurns: Int
+    ): List<Triple<String, String, String?>> {
+        val full = all.map { Triple(it.role, it.answerText, it.imageBase64) }
+        if (maxTurns <= 0 || all.size <= maxTurns * 2) return full
+        // Keep the LAST maxTurns user messages and the assistant replies
+        // around them — drop only the oldest tail.
+        val keepFrom = all.size - (maxTurns * 2)
+        return full.subList(keepFrom, full.size).toList()
+    }
 }
 
 /**

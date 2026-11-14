@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
@@ -261,6 +262,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     ) { }
     var calendarsList by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     var showSearchCountDialog by remember { mutableStateOf(false) }
+    var showMaxToolCallsDialog by remember { mutableStateOf(false) }
+    var showMaxContextTurnsDialog by remember { mutableStateOf(false) }
     var showSearchRegionDialog by remember { mutableStateOf(false) }
     var showSearchFreshnessDialog by remember { mutableStateOf(false) }
 
@@ -400,6 +403,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                             onCheckedChange = { on ->
                                 AppSettings.update { it.copy(noThink = on) }
                             }
+                        )
+                    }
+
+                    SettingsSection(title = Strings.t(Strings.limitsSection)) {
+                        SettingsItem(
+                            icon = Icons.Default.Build,
+                            title = Strings.t(Strings.maxToolCallsLabel),
+                            subtitle = Strings.t(Strings.maxToolCallsSub) +
+                                " • ${cfg.maxToolCalls}",
+                            onClick = { showMaxToolCallsDialog = true }
+                        )
+                        SettingsItem(
+                            icon = Icons.Default.History,
+                            title = Strings.t(Strings.maxContextTurnsLabel),
+                            subtitle = if (cfg.maxContextTurns <= 0)
+                                Strings.t(Strings.allTurns)
+                            else "${cfg.maxContextTurns} ${Strings.t(Strings.turns)}",
+                            onClick = { showMaxContextTurnsDialog = true }
                         )
                     }
 
@@ -1118,6 +1139,28 @@ fun SettingsScreen(onBack: () -> Unit) {
         )
     }
 
+
+    if (showMaxToolCallsDialog) {
+        MaxToolCallsDialog(
+            current = cfg.maxToolCalls,
+            onSelected = { n ->
+                AppSettings.update { it.copy(maxToolCalls = n) }
+                showMaxToolCallsDialog = false
+            },
+            onDismiss = { showMaxToolCallsDialog = false }
+        )
+    }
+
+    if (showMaxContextTurnsDialog) {
+        MaxContextTurnsDialog(
+            current = cfg.maxContextTurns,
+            onSelected = { n ->
+                AppSettings.update { it.copy(maxContextTurns = n) }
+                showMaxContextTurnsDialog = false
+            },
+            onDismiss = { showMaxContextTurnsDialog = false }
+        )
+    }
     if (showSearchRegionDialog) {
         SearchRegionDialog(
             current = cfg.searchRegion,
