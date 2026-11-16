@@ -3601,12 +3601,15 @@ private fun listSystemCalendars(context: android.content.Context): List<Pair<Lon
             android.provider.CalendarContract.Calendars.CALENDAR_DISPLAY_NAME + " ASC"
         )?.use { c ->
             val out = mutableListOf<Pair<Long, String>>()
-            while (c.moveToNext()) {
-                val access = c.getInt(2)
-                // only calendars we can write to (owner/editor/contributor)
-                if (access >= android.provider.CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
-                    out.add(c.getLong(0) to c.getString(1))
-                }
+            // Start at the FIRST row: a bare moveToNext() skips it.
+            if (c.moveToFirst()) {
+                do {
+                    val access = c.getInt(2)
+                    // only calendars we can write to (owner/editor/contributor)
+                    if (access >= android.provider.CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
+                        out.add(c.getLong(0) to c.getString(1))
+                    }
+                } while (c.moveToNext())
             }
             out
         } ?: emptyList()

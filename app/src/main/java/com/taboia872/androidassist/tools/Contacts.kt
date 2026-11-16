@@ -43,7 +43,10 @@ object Contacts {
             )?.use { c ->
                 val nameCol = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numCol = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                while (c.moveToNext() && out.size < 20) {
+                // Start at the FIRST row: a bare moveToNext() skips it.
+                if (!c.moveToFirst()) return@use emptyList()
+                do {
+                    if (out.size >= 20) break
                     val name = if (nameCol >= 0) c.getString(nameCol) else null
                     val number = if (numCol >= 0) c.getString(numCol) else null
                     if (name.isNullOrBlank() || number.isNullOrBlank()) continue
@@ -52,7 +55,7 @@ object Contacts {
                     val key = normalize(name)
                     if (!seen.add(key)) continue
                     out.add(Hit(name, number.trim()))
-                }
+                } while (c.moveToNext())
             }
         } catch (e: SecurityException) {
             // Permission revoked in the system settings behind our back.

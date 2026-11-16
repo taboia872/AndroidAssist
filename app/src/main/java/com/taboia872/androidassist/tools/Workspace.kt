@@ -86,16 +86,20 @@ object Workspace {
             )?.use { c ->
                 val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                 val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                while (c.moveToNext()) {
-                    val docName = if (nameCol >= 0) c.getString(nameCol) else null
-                    if (docName == name) {
-                        val docId = if (idCol >= 0) c.getString(idCol) else null
-                        if (docId != null) {
-                            return DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+                val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                // Start at the FIRST row: a bare moveToNext() skips it.
+                if (c.moveToFirst()) {
+                    do {
+                        val docName = if (nameCol >= 0) c.getString(nameCol) else null
+                        if (docName == name) {
+                            val docId = if (idCol >= 0) c.getString(idCol) else null
+                            if (docId != null) {
+                                return DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+                            }
                         }
-                    }
+                    } while (c.moveToNext())
                 }
-                null
             }
         } catch (e: Exception) {
             null
@@ -203,7 +207,9 @@ object Workspace {
                 val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                 val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
                 val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                while (c.moveToNext()) {
+                // Start at the FIRST row: a bare moveToNext() skips it.
+                if (!c.moveToFirst()) return@use emptyList()
+                do {
                     val n = if (nameCol >= 0) c.getString(nameCol) else null
                     if (n.isNullOrBlank()) continue
                     // Folders are not files.
@@ -211,7 +217,7 @@ object Workspace {
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) continue
                     val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
                     out.add(n to size)
-                }
+                } while (c.moveToNext())
                 out
             } ?: emptyList()
         } catch (e: Exception) {
