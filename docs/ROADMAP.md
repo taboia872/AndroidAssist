@@ -1,0 +1,153 @@
+# Roadmap AndroidAssist
+
+Estratégia e backlog de funcionalidades. **Este arquivo é a fonte da verdade do
+que está planejado** — se um chat encher, retome lendo este arquivo + a skill
+`androidassist-app` (regras, armadilhas, fluxo de build).
+
+Última atualização: 2026-11-16 (após o release v0.3.0).
+
+---
+
+## Estado atual (v0.3.0, 2026-11-16)
+
+Já existe e funciona:
+
+- Chat multi-provider com streaming, blocos (pensamento/resposta/tool), markdown,
+  visão (imagem), PDFs.
+- Voz: STT (sistema ou Groq Whisper) e TTS (sistema ou FishAudio), com VAD adaptativo.
+- Tools independentes com **toggle por habilidade**: busca web, 8 habilidades
+  Android (alarme, timer, agenda, abrir app,剪贴板, compartilhar, localização,
+  mapa) e 3 tools de memória. Cada grupo tem seu switch.
+- O prompt agora **lista as tools disponíveis e as desligadas** — o modelo para de
+  tentar chamar habilidade desativada.
+- Personas completas (prompt + modelo + voz + busca).
+- Backup fracionado (personas / memórias / chaves / chats / endpoints).
+- Overlay do gesto do assistente.
+
+O que **NÃO** existe ainda (verificado no código em 2026-11-16):
+
+| Capacidade | Status |
+|---|---|
+| Pasta apontada + tools de arquivo | ❌ não existe |
+| Agendamento de tarefa (executor em background) | ❌ não existe (manifest sem nenhum `receiver`, sem `BOOT_COMPLETED`, sem `FOREGROUND_SERVICE`) |
+| Página HTML gerada + link no chat | ❌ não existe (nenhum `WebView` no app) |
+| Modelo por tarefa / pipeline imagem→principal | ❌ não existe (`AppConfig` tem UM `model`) |
+| Tocar mídia (música/arquivo/YouTube) | ❌ não existe (existe só `open_app` genérico) |
+| Enviar mensagem a contato específico | ⚠️ parcial — `share_text` abre o share sheet genérico |
+| Leitura de contatos | ❌ não existe (`ContactsContract` ausente) |
+
+---
+
+## Ordem de execução (acordada com o Juliano)
+
+| # | Item | Esforço | Impacto | Status |
+|---|---|---|---|---|
+| 1 | **(a) Pasta apontada + tools de arquivo** | médio | alto | **EM ANDAMENTO** |
+| 2 | **(e) Contato + WhatsApp** | médio | alto | **EM ANDAMENTO** (junto com (a)) |
+| 3 | (d) `play_media` — tocar música | baixo | alto | pendente |
+| 4 | (c) `modelVision` — pipeline de imagem | médio | médio | pendente |
+| 5 | (b) Agendamento de tarefas | alto | alto | pendente (por último) |
+
+### Por que (a) e (e) juntas
+
+(a) cria a infraestrutura de "pasta apontada" (SAF `ACTION_OPEN_DOCUMENT_TREE` +
+persistência de URI). (e) precisa de um lugar para gravar a fila de mensagens e
+de um padrão de permissão (`READ_CONTACTS`). As duas são **tools novas no mesmo
+mecanismo**: `ToolAbility` + `DeviceTools` + `AppSettings` + a aba Ferramentas.
+Fazê-las no mesmo ciclo evita dois passes pelo mesmo código.
+
+### Ordem de implementação dentro do ciclo (a)+(e)
+
+1. `AppSettings`: campos `workspaceFolderUri` (a pasta apontada) e
+   `contactsPermissionGranted` / cache de contatos.
+2. SAF: `SettingsScreen` → botão "escolher pasta" (`ACTION_OPEN_DOCUMENT_TREE`)
+   + `takePersistableUriPermission`.
+3. Tools de arquivo: `write_file`, `read_file`, `list_dir`, `delete_file`
+   (DocumentFile / `DocumentsContract`).
+4. Tool de contato: `send_message` — resolve nome→telefone via `ContactsContract`
+   e abre o WhatsApp/ mensageiro com o texto **pré-preenchido** (a plataforma
+   exige a confirmação final do usuário).
+5. Backup: passar a gravar também na pasta apontada, se existir.
+
+### Por que (b) fica por último
+
+É o único que muda a natureza do app (de "assistente que você chama" para
+"assistente que age"). Traz custo de bateria, a política de background do
+Android (janela de doze horas) e um consumidor de cota que precisa de limite.
+Faz por último, com (a) já no lugar (é onde o resultado da tarefa é gravado) e
+com o **modelo local** como padrão do agendamento — buscar e resumir notícias
+todo dia às 7h gasta cota da API.
+
+---
+
+## Detalhes de cada item planejado
+
+### (a) Pasta apontada + tools de arquivo
+
+O caminho técnico já existe: `BackupStore` usa SAF (`CreateDocument` /
+`OpenDocument`). Falta o **modo pasta**: `ACTION_OPEN_DOCUMENT_TREE` devolve uma
+pasta e `takePersistableUriPermission` mantém o acesso depois do restart.
+
+Tools a criar (nomes candidatos, aligning com o estilo existente):
+`write_file`, `read_file`, `list_dir`, `delete_file`.
+
+Ganho duplo: backup incremental (só o que mudou) + é o "workspace" do app.
+
+### (e) Contato + WhatsApp
+
+`share_text` hoje abre o share sheet genérico — o usuário escolhe app e
+contato à mão. Duas camadas possíveis:
+
+- **sem permissão nova** (recomendado, 90% do caso): `ContactsContract` para ler
+  nome→telefone, `Intent.ACTION_SEND` com `package = "com.whatsapp"` e o número
+  no texto. O WhatsApp faz a confirmação final (a plataforma exige).
+- **com permissão**: `SmsManager` para SMS direto + receiver de resposta. Mais
+  invasivo; único jeito de "ler e responder".
+
+### (d) play_media
+
+`Intent.ACTION_VIEW` já funciona. `open_app` abre o Spotify; falta:
+`ACTION_VIEW` com `content://` + `type=audio/*` para arquivo, e Intent de busca
+no YouTube. Com a pasta de (a), "meus arquivos" fica natural.
+
+### (c) modelVision
+
+`AppConfig` tem um `model`. Desenho: config por slot — `model` (principal) +
+`modelVision` (análise de imagem). O `LlmClient` já monta o formato OpenAI
+vision; falta rotear: se a mensagem tem imagem e existe `modelVision`, a 1ª
+chamada vai para ele e o texto gerado entra como contexto do modelo principal.
+Resolve o caso de o modelo atual não ter visão.
+
+### (b) Agendamento de tarefas
+
+Peças que faltam: `AlarmManager.setExactAndAllowWhileIdle` + `BroadcastReceiver`
++ `BOOT_COMPLETED` (o manifest hoje não tem nenhum receiver); um worker que roda
+`LlmClient.chat()` fora da UI; e a página HTML (`WebView` com `loadData(html,
+"text/html", "utf-8")` + `ACTION_VIEW` de `file://` para abrir no navegador, e o
+link mostrado no chat).
+
+O resumo das notícias em si é fácil — a tool `web_search` já existe. O difícil
+é o gatilho no background e o modelo rodando sem tela.
+
+---
+
+## Melhorias de arquitetura (baratas, pré-requisitos das grandes)
+
+| # | Item | Nota |
+|---|---|---|
+| (g) | `ToolExecutor` em vez do `when` gigante | `DeviceTools.execute` hoje é um `when` de 9 braços; ao chegar em ~20 tools vira problema de manutenção. Separar por arquivo (um tool por arquivo, com `spec()` + `run()`) faz catálogo, prompt e execução derivarem da **mesma** lista — é o padrão que o `ToolCatalog` já usa. Isso é o que faz (a) e (d) saírem baratos depois. |
+| (h) | Pasta de tools = backup nativo | Com (a), cada arquivo que o modelo cria passa a ter versionamento, diff, histórico e rollback. É o que separa um assistente de um chat com botões. |
+| (i) | Personas por especialidade | O app já tem personas completas (prompt + modelo + voz). Falta o eixo de **pipeline**: uma persona "analista de imagem" e outra "redator", com encadeamento via (c). |
+| (j) | Custo e latência visíveis | Mostrar "rebuscando…", tokens acumulados e o tempo de cada tool no bloco da timeline (o `detail` do bloco `tool` já existe — só falta preencher com métricas). |
+
+---
+
+## Como retomar este roadmap
+
+1. Ler este arquivo.
+2. Carregar a skill `androidassist-app` (regras + armadilhas + fluxo de build).
+3. Conferir o estado real do repo:
+   `cd /root/androidassist && git log --oneline -5 && git status --short && git fetch origin`
+4. Continuar o item **EM ANDAMENTO** na tabela acima.
+5. Build só no CI (sem SDK local): commit → push → monitorar → baixar o APK
+   para `/root/androidassist-debug-<sha8>.apk`.
