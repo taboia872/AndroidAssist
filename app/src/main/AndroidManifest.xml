@@ -48,6 +48,14 @@
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="text/plain" />
         </intent>
+        <!-- open_app: the launcher apps the assistant may open. WITHOUT
+             this, queryIntentActivities(MAIN/LAUNCHER) returns an EMPTY
+             list on Android 11+ (package visibility filtering) and the
+             tool can never find any app. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
