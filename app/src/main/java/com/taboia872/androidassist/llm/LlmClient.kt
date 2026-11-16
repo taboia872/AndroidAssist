@@ -3,6 +3,7 @@ package com.taboia872.androidassist.llm
 import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.tools.ToolAbility
+import com.taboia872.androidassist.tools.ToolCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -241,8 +242,13 @@ object LlmClient {
             if (AppSettings.config.value.noThink) {
                 put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
             }
+            // Tool specs + the NAMES actually declared. The names feed the
+            // system prompt block (the model is told what it can call RIGHT
+            // NOW) and are read back from the very same specs, so the prompt
+            // and the declared tools can never drift apart.
+            val specs = JSONArray()
+            val declaredToolNames = mutableListOf<String>()
             if (toolsEnabled) {
-                val specs = JSONArray()
                 // Each tool group is INDEPENDENT: turning the web search off
                 // must NOT hide the Android abilities, and vice-versa.
                 if (allowWebSearch && AppSettings.config.value.webSearchEnabled) {
@@ -262,14 +268,34 @@ object LlmClient {
                 if (AppSettings.config.value.memoryToolsEnabled) {
                     memoryToolSpecs().forEach { specs.put(it) }
                 }
+                for (i in 0 until specs.length()) {
+                    declaredToolNames += specs.getJSONObject(i)
+                        .getJSONObject("function").getString("name")
+                }
                 if (specs.length() > 0) {
                     put("tools", specs)
                     put("tool_choice", "auto")
                 }
             }
+            // The tools the user switched OFF: named in the prompt so the
+            // model says "that is turned off" instead of burning a call on
+            // it or pretending it worked.
+            val disabledToolNames = ToolCatalog.ALL_TOOLS
+                .filter { !AppSettings.toolAllowed(it) }
+            // The web search runs at most ONCE per turn: on the following
+            // rounds it is neither declared nor disabled — it is already
+            // spent, and the prompt says so (otherwise the model would think
+            // the user switched it off).
+            val usedUpToolNames = if (
+                !allowWebSearch && AppSettings.config.value.webSearchEnabled
+            ) listOf("web_search") else emptyList()
+            val effectivePrompt = systemPrompt +
+                ToolCatalog.availabilityBlock(
+                    declaredToolNames, disabledToolNames, usedUpToolNames
+                )
             put("messages", JSONArray().apply {
-                if (systemPrompt.isNotBlank()) {
-                    put(JSONObject().put("role", "system").put("content", systemPrompt))
+                if (effectivePrompt.isNotBlank()) {
+                    put(JSONObject().put("role", "system").put("content", effectivePrompt))
                 }
                 toolExchanges.forEach { ex ->
                     // The assistant message that made the call (+ any partial
