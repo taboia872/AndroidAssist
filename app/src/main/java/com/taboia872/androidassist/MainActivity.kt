@@ -10,16 +10,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.ui.ChatHistoryScreen
@@ -72,8 +72,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             var screen by remember { mutableStateOf("chat") }
             var resumeChatId by remember { mutableStateOf<String?>(null) }
-            // Swipe accumulator: right-swipe on the chat opens Settings
-            var swipeDelta by remember { mutableFloatStateOf(0f) }
+            // Swipe direction on the chat: dragging RIGHT->LEFT opens the
+            // Settings (the panel then slides in FROM THE RIGHT, dragging
+            // the chat to the left with it — like pulling one screen over
+            // the other). Dragging LEFT->RIGHT closes it again.
             AndroidAssistTheme {
                 // Android back returns to the CHAT instead of exiting the app
                 // (user report): only exit from the chat screen itself.
@@ -82,36 +84,56 @@ class MainActivity : ComponentActivity() {
                 val chatSwipeModifier = Modifier
                     .fillMaxSize()
                     .pointerInput(screen) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                if (screen == "chat" && swipeDelta > 90.dp.toPx()) {
-                                    screen = "settings"
+                        // Horizontal-first detection: only claim the gesture
+                        // when it is CLEARLY horizontal, so the vertical
+                        // scroll of the chat list is never hijacked.
+                        awaitEachGesture {
+                            var dx = 0f
+                            var dy = 0f
+                            var horizontal = false
+                            var claimed = false
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                dx += change.positionChange().x
+                                dy += change.positionChange().y
+                                if (!claimed) {
+                                    if (kotlin.math.abs(dx) > 40.dp.toPx() &&
+                                        kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f
+                                    ) {
+                                        horizontal = true
+                                        claimed = true
+                                    } else if (kotlin.math.abs(dy) > 40.dp.toPx()) {
+                                        break
+                                    }
                                 }
-                                swipeDelta = 0f
+                                if (claimed) change.consume()
+                            } while (event.changes.any { it.pressed })
+                            if (horizontal && screen == "chat" && dx < -90.dp.toPx()) {
+                                // RIGHT -> LEFT opens Settings.
+                                screen = "settings"
                             }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            swipeDelta += dragAmount
                         }
                     }
 
                 // Screen transitions: the Settings panel FOLLOWS THE FINGER.
-                // Swipe left->right pulls the panel IN FROM THE LEFT; closing
-                // pushes it back out to the left (fixes the inverted feel —
-                // user report: settings were entering from the right).
+                // Swipe right->left pulls the panel IN FROM THE RIGHT (the
+                // chat is pushed to the left with it); closing pushes the
+                // panel back out to the right and the chat returns from the
+                // left. (User report: the old direction felt inverted.)
                 AnimatedContent(
                     targetState = screen,
                     transitionSpec = {
                         if (targetState == "settings") {
-                            // open: settings enter from the LEFT moving right;
-                            // the chat is pushed a quarter to the RIGHT
-                            slideInHorizontally(tween(280)) { -it } togetherWith
-                                slideOutHorizontally(tween(280)) { it / 4 }
+                            // open: settings enter from the RIGHT moving
+                            // left; the chat is pushed a quarter to the LEFT
+                            slideInHorizontally(tween(280)) { it } togetherWith
+                                slideOutHorizontally(tween(280)) { -it / 4 }
                         } else {
-                            // close: settings return to the LEFT edge;
-                            // the chat comes back from the right
-                            slideInHorizontally(tween(280)) { it / 4 } togetherWith
-                                slideOutHorizontally(tween(280)) { -it }
+                            // close: settings return to the RIGHT edge;
+                            // the chat comes back from the left
+                            slideInHorizontally(tween(280)) { -it / 4 } togetherWith
+                                slideOutHorizontally(tween(280)) { it }
                         }
                     },
                     label = "screens"

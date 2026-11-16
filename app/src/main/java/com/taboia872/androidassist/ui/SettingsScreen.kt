@@ -112,6 +112,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -228,6 +229,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var settingsCategoryName by rememberSaveable { mutableStateOf(SettingsCategory.AI.name) }
     val settingsCategory = SettingsCategory.valueOf(settingsCategoryName)
     val settingsScrollState = rememberScrollState()
+    // The swipe that collapses the Settings back to the chat lives in the
+    // gesture handler below; keep a FRESH reference to it so the handler
+    // never calls a stale callback.
+    val currentOnBack by rememberUpdatedState(onBack)
 
     var showProviderDialog by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
@@ -384,9 +389,18 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 if (dx < -threshold && idx < SettingsCategory.entries.size - 1) {
                                     settingsCategoryName =
                                         SettingsCategory.entries[idx + 1].name
-                                } else if (dx > threshold && idx > 0) {
-                                    settingsCategoryName =
-                                        SettingsCategory.entries[idx - 1].name
+                                } else if (dx > threshold) {
+                                    if (idx > 0) {
+                                        settingsCategoryName =
+                                            SettingsCategory.entries[idx - 1].name
+                                    } else {
+                                        // FIRST TAB (Modelo): there is no tab
+                                        // before it, so the drag LEFT->RIGHT
+                                        // COLLAPSES the settings and goes back
+                                        // to the chat — the mirror of the
+                                        // right->left drag that opened it.
+                                        currentOnBack()
+                                    }
                                 }
                             }
                         }
