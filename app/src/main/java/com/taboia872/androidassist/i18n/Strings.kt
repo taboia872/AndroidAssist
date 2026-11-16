@@ -630,7 +630,7 @@ object Strings {
         abilityMapDesc -> "Abre um ponto no mapa no seu app de mapas favorito."
         abilityGroupFiles -> "Arquivos e mensagens"
         abilityFiles -> "Arquivos da pasta"
-        abilityFilesDesc = "Cria, lê, lista e apaga arquivos de texto na pasta que você apontar."
+        abilityFilesDesc -> "Cria, lê, lista e apaga arquivos de texto na pasta que você apontar."
         abilityMessaging -> "Enviar mensagens"
         abilityMessagingDesc -> "Abre o WhatsApp (ou outro app) com a mensagem pronta para um contato da sua agenda."
         workspaceFolderLabel -> "Pasta de trabalho"
