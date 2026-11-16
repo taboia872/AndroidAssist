@@ -44,18 +44,19 @@ object Contacts {
                 val nameCol = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numCol = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                 // Start at the FIRST row: a bare moveToNext() skips it.
-                if (!c.moveToFirst()) return@use emptyList()
-                do {
-                    if (out.size >= 20) break
-                    val name = if (nameCol >= 0) c.getString(nameCol) else null
-                    val number = if (numCol >= 0) c.getString(numCol) else null
-                    if (name.isNullOrBlank() || number.isNullOrBlank()) continue
-                    if (!normalize(name).contains(needle)) continue
-                    // One hit per person (the first number is enough).
-                    val key = normalize(name)
-                    if (!seen.add(key)) continue
-                    out.add(Hit(name, number.trim()))
-                } while (c.moveToNext())
+                if (c.moveToFirst()) {
+                    do {
+                        if (out.size >= 20) break
+                        val name = if (nameCol >= 0) c.getString(nameCol) else null
+                        val number = if (numCol >= 0) c.getString(numCol) else null
+                        if (name.isNullOrBlank() || number.isNullOrBlank()) continue
+                        if (!normalize(name).contains(needle)) continue
+                        // One hit per person (the first number is enough).
+                        val key = normalize(name)
+                        if (!seen.add(key)) continue
+                        out.add(Hit(name, number.trim()))
+                    } while (c.moveToNext())
+                }
             }
         } catch (e: SecurityException) {
             // Permission revoked in the system settings behind our back.
