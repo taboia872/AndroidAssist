@@ -28,13 +28,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AddComment
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -65,6 +67,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tts.FishTts
+import com.taboia872.androidassist.tts.TtsManager
 import com.taboia872.androidassist.util.PdfExtractor
 import com.taboia872.androidassist.util.PdfResult
 import com.taboia872.androidassist.voice.VoiceEngine
@@ -272,8 +276,37 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // 1) SPEAK: toggle the spoken answer (TTS) right from the
+                    //    top bar — the same switch as Settings > Output, so
+                    //    the two never disagree.
+                    IconButton(onClick = {
+                        val on = !cfg.ttsEnabled
+                        AppSettings.update { c -> c.copy(ttsEnabled = on) }
+                        if (!on) {
+                            // Turning it off stops the speech in flight.
+                            TtsManager.stop()
+                            FishTts.stop()
+                        }
+                    }) {
+                        Icon(
+                            if (cfg.ttsEnabled) Icons.Default.VolumeUp
+                            else Icons.Default.VolumeOff,
+                            contentDescription = Strings.t(
+                                if (cfg.ttsEnabled) Strings.speakAloudOn
+                                else Strings.speakAloudOff
+                            ),
+                            tint = if (cfg.ttsEnabled)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // 2) NEW MESSAGE: the "compose" bubble of the AI chat
+                    //    apps — it starts a fresh conversation.
                     IconButton(onClick = { session.reset(context.applicationContext) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = Strings.t(Strings.newChat))
+                        Icon(
+                            Icons.Default.AddComment,
+                            contentDescription = Strings.t(Strings.newMessage)
+                        )
                     }
                     IconButton(onClick = onOpenHistory) {
                         Icon(Icons.Default.History, contentDescription = Strings.t(Strings.chatHistory))
