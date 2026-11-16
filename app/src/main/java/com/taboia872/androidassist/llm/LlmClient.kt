@@ -23,7 +23,15 @@ data class ToolExchange(
     val callId: String,
     val callName: String,
     val assistantContent: String,
-    val result: String
+    val result: String,
+    /**
+     * The arguments the model passed, as the raw JSON string it sent.
+     *
+     * CRITICAL: replaying the call with `arguments = "{}"` hides the
+     * parameters from the model — it then looks like the tool was called
+     * with no arguments, and the model calls it AGAIN (the "tool spam").
+     */
+    val argsJson: String = "{}"
 )
 
 sealed class StreamEvent {
@@ -346,7 +354,8 @@ object LlmClient {
                             put("type", "function")
                             put("function", JSONObject().apply {
                                 put("name", ex.callName)
-                                put("arguments", "{}")
+                                // The REAL arguments the model sent — not "{}".
+                                put("arguments", ex.argsJson.ifBlank { "{}" })
                             })
                         }))
                     })

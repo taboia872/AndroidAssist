@@ -277,148 +277,182 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             //      loop — user request).
             var callId = streamRound(history, basePrompt, useTools, allowWebSearch = true)
             var toolRound = 0
+            // The tool+arguments pairs already used in THIS turn. A repeat
+            // is refused: a model that does not see its own arguments
+            // (or that got a useless result) would call the same tool
+            // forever — the "spamming tool after tool" behaviour.
+            val usedToolCalls = mutableSetOf<String>()
+            // The web search runs at most ONCE per turn.
+            var webSearchUsedThisTurn = false
             while (callId != null && toolRound < maxToolCalls) {
                 toolRound++
-                val toolName = pendingToolName
-                // What the model wrote BEFORE this tool call (per round).
-                val assistantContent = roundAnswerText()
-                val toolHeader: String
-                val toolResult: String
-                val knownTool = toolName == "web_search" ||
-                    toolName in ToolAbility.MEMORY_TOOLS ||
-                    ToolAbility.of(toolName) != null
-                if (knownTool && !AppSettings.toolAllowed(toolName)) {
-                    // The user switched this ability OFF: refuse with an
-                    // explanation instead of running it.
-                    toolHeader = "\ud83d\udd12 $toolName"
-                    toolResult = "The tool '$toolName' is DISABLED by the user " +
-                        "(Settings > Tools). Do NOT use it and do NOT pretend it " +
-                        "worked — tell the user it is turned off."
-                    addBlock("tool", toolHeader, "")
-                } else if (toolName == "web_search") {
-                    status = Strings.t(Strings.searching)
-                    val searchQuery = try {
-                        org.json.JSONObject(pendingToolArgs).optString("query", "").ifBlank { q }
-                    } catch (e: Exception) { q }
-                    val outcome = SearchEngines.search(searchQuery)
-                    val detailForUser: String
-                    when (outcome) {
-                        is SearchOutcome.Ok -> {
-                            detailForUser = buildString {
-                                outcome.results.forEachIndexed { i, r ->
-                                    if (i > 0) append("\n\n")
-                                    append("${i + 1}. ${r.title}\n")
-                                    append("${r.url}\n")
-                                    append(r.snippet)
-                                }
-                            }
-                            toolResult = buildString {
-                                append("Web search results for \"$searchQuery\":\n")
-                                outcome.results.forEach { r ->
-                                    append("\n---\n")
-                                    append("Title: ${r.title}\n")
-                                    append("URL: ${r.url}\n")
-                                    append("Snippet: ${r.snippet}")
-                                }
-                                append("\n---\n")
-                            }
-                        }
-                        is SearchOutcome.Failed -> {
-                            val engine = AppSettings.config.value.searchEngine
-                            searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
-                            detailForUser = outcome.reason
-                            toolResult = "The web search FAILED: ${outcome.reason}. " +
-                                "Tell the user the search is not working right now " +
-                                "(quote the reason) - do NOT invent facts."
-                        }
-                    }
-                    toolHeader = "\ud83d\udd0d $searchQuery"
-                    addBlock("tool", toolHeader, detailForUser)
-                } else if (toolName in ToolAbility.MEMORY_TOOLS) {
-                    // MEMORY TOOLS: local storage — no device Intent.
-                    val c = ctx
-                    if (c != null) {
-                        val argsObj = try {
-                            org.json.JSONObject(pendingToolArgs)
-                        } catch (e: Exception) { org.json.JSONObject() }
-                        when (toolName) {
-                            "save_memory" -> {
-                                val kind = argsObj.optString("kind", "fact")
-                                val text = argsObj.optString("text", "")
-                                val mem = withContext(Dispatchers.IO) {
-                                    MemoryStore.add(c, kind, text, source = "model")
-                                }
-                                toolHeader = "\ud83d\udcae " + mem.kind + ": " + mem.text.take(60)
-                                toolResult = "Memory saved (kind=" + mem.kind + "): '" +
-                                    mem.text + "'. Apply " +
-                                    (if (mem.kind == "core") "this instruction from NOW ON in every reply"
-                                     else "this when relevant") + "."
-                                addBlock("tool", toolHeader, "")
-                            }
-                            "search_memories" -> {
-                                val q0 = argsObj.optString("query", "")
-                                val hits = withContext(Dispatchers.IO) {
-                                    MemoryStore.search(c, q0)
-                                }
-                                toolHeader = "\ud83d\udd0e " + q0.ifBlank { "\u2026" }
-                                toolResult = if (hits.isEmpty()) {
-                                    "No memories match '$q0'."
-                                } else {
-                                    "Memories found:\n" + hits.joinToString("\n") {
-                                        "[${it.kind}] ${it.text} (id ${it.id})"
+                // EVERY call the model made in THIS round. A model can ask
+                // for several tools at once; running only the first one
+                // made it ask again on the next round (the "tool spam").
+                val callsThisRound = pendingToolCalls.ifEmpty {
+                    listOf(Triple(callId, pendingToolName, pendingToolArgs))
+                }
+                for ((theCallId, toolName, toolArgs) in callsThisRound) {
+                    val callSignature = "$toolName|${toolArgs.ifBlank { "{}" }}"
+                    // What the model wrote BEFORE this tool call (per round).
+                    val assistantContent = roundAnswerText()
+                    val toolHeader: String
+                    val toolResult: String
+                    val knownTool = toolName == "web_search" ||
+                        toolName in ToolAbility.MEMORY_TOOLS ||
+                        ToolAbility.of(toolName) != null
+                    if (!usedToolCalls.add(callSignature)) {
+                        // The SAME tool with the SAME arguments was already run
+                        // in this turn. Refuse it and make the model answer.
+                        toolHeader = "\ud83d\udd12 $toolName (repetida)"
+                        toolResult = "You already called '$toolName' with these exact " +
+                            "arguments in this turn. Do NOT call it again. Use the result " +
+                            "you already have and answer the user now."
+                        addBlock("tool", toolHeader, "")
+                    } else if (knownTool && !AppSettings.toolAllowed(toolName)) {
+                        // The user switched this ability OFF: refuse with an
+                        // explanation instead of running it.
+                        toolHeader = "\ud83d\udd12 $toolName"
+                        toolResult = "The tool '$toolName' is DISABLED by the user " +
+                            "(Settings > Tools). Do NOT use it and do NOT pretend it " +
+                            "worked — tell the user it is turned off."
+                        addBlock("tool", toolHeader, "")
+                    } else if (toolName == "web_search" && webSearchUsedThisTurn) {
+                        // The search already ran in this turn (the model asked
+                        // for it twice in the same round).
+                        toolHeader = "\ud83d\udd12 web_search (repetida)"
+                        toolResult = "The web search already ran in this turn. Do NOT " +
+                            "search again — use the results you already have and answer."
+                        addBlock("tool", toolHeader, "")
+                    } else if (toolName == "web_search") {
+                        webSearchUsedThisTurn = true
+                        status = Strings.t(Strings.searching)
+                        val searchQuery = try {
+                            org.json.JSONObject(toolArgs).optString("query", "").ifBlank { q }
+                        } catch (e: Exception) { q }
+                        val outcome = SearchEngines.search(searchQuery)
+                        val detailForUser: String
+                        when (outcome) {
+                            is SearchOutcome.Ok -> {
+                                detailForUser = buildString {
+                                    outcome.results.forEachIndexed { i, r ->
+                                        if (i > 0) append("\n\n")
+                                        append("${i + 1}. ${r.title}\n")
+                                        append("${r.url}\n")
+                                        append(r.snippet)
                                     }
                                 }
-                                addBlock("tool", toolHeader, toolResult)
-                            }
-                            "forget_memory" -> {
-                                val target = argsObj.optString("id_or_text", "")
-                                val gone = withContext(Dispatchers.IO) {
-                                    MemoryStore.forget(c, target)
+                                toolResult = buildString {
+                                    append("Web search results for \"$searchQuery\":\n")
+                                    outcome.results.forEach { r ->
+                                        append("\n---\n")
+                                        append("Title: ${r.title}\n")
+                                        append("URL: ${r.url}\n")
+                                        append("Snippet: ${r.snippet}")
+                                    }
+                                    append("\n---\n")
                                 }
-                                toolHeader = "\ud83e\udde9 " + target.take(60)
-                                toolResult = if (gone) "Memory deleted: '$target'."
-                                else "No memory matched '$target' — nothing deleted."
-                                addBlock("tool", toolHeader, "")
                             }
-                            else -> {
-                                toolHeader = toolName
-                                toolResult = "Unknown memory tool."
-                                addBlock("tool", toolHeader, "")
+                            is SearchOutcome.Failed -> {
+                                val engine = AppSettings.config.value.searchEngine
+                                searchNotice = "\u26a0\ufe0f Search ($engine): ${outcome.reason}"
+                                detailForUser = outcome.reason
+                                toolResult = "The web search FAILED: ${outcome.reason}. " +
+                                    "Tell the user the search is not working right now " +
+                                    "(quote the reason) - do NOT invent facts."
                             }
                         }
+                        toolHeader = "\ud83d\udd0d $searchQuery"
+                        addBlock("tool", toolHeader, detailForUser)
+                    } else if (toolName in ToolAbility.MEMORY_TOOLS) {
+                        // MEMORY TOOLS: local storage — no device Intent.
+                        val c = ctx
+                        if (c != null) {
+                            val argsObj = try {
+                                org.json.JSONObject(toolArgs)
+                            } catch (e: Exception) { org.json.JSONObject() }
+                            when (toolName) {
+                                "save_memory" -> {
+                                    val kind = argsObj.optString("kind", "fact")
+                                    val text = argsObj.optString("text", "")
+                                    val mem = withContext(Dispatchers.IO) {
+                                        MemoryStore.add(c, kind, text, source = "model")
+                                    }
+                                    toolHeader = "\ud83d\udcae " + mem.kind + ": " + mem.text.take(60)
+                                    toolResult = "Memory saved (kind=" + mem.kind + "): '" +
+                                        mem.text + "'. Apply " +
+                                        (if (mem.kind == "core") "this instruction from NOW ON in every reply"
+                                         else "this when relevant") + "."
+                                    addBlock("tool", toolHeader, "")
+                                }
+                                "search_memories" -> {
+                                    val q0 = argsObj.optString("query", "")
+                                    val hits = withContext(Dispatchers.IO) {
+                                        MemoryStore.search(c, q0)
+                                    }
+                                    toolHeader = "\ud83d\udd0e " + q0.ifBlank { "\u2026" }
+                                    toolResult = if (hits.isEmpty()) {
+                                        "No memories match '$q0'."
+                                    } else {
+                                        "Memories found:\n" + hits.joinToString("\n") {
+                                            "[${it.kind}] ${it.text} (id ${it.id})"
+                                        }
+                                    }
+                                    addBlock("tool", toolHeader, toolResult)
+                                }
+                                "forget_memory" -> {
+                                    val target = argsObj.optString("id_or_text", "")
+                                    val gone = withContext(Dispatchers.IO) {
+                                        MemoryStore.forget(c, target)
+                                    }
+                                    toolHeader = "\ud83e\udde9 " + target.take(60)
+                                    toolResult = if (gone) "Memory deleted: '$target'."
+                                    else "No memory matched '$target' — nothing deleted."
+                                    addBlock("tool", toolHeader, "")
+                                }
+                                else -> {
+                                    toolHeader = toolName
+                                    toolResult = "Unknown memory tool."
+                                    addBlock("tool", toolHeader, "")
+                                }
+                            }
+                        } else {
+                            toolHeader = toolName
+                            toolResult = "Cannot access memories in this context."
+                            addBlock("tool", toolHeader, "")
+                        }
                     } else {
-                        toolHeader = toolName
-                        toolResult = "Cannot access memories in this context."
+                        // DEVICE TOOL: executed locally via Android Intents (alarm,
+                        // timer, calendar, open app, clipboard, share).
+                        val c = ctx
+                        val res = if (c != null) {
+                            // IO dispatcher: get_location waits for a GPS/network
+                            // fix (seconds) and reverse-geocodes over HTTP —
+                            // must not block the main thread.
+                            withContext(Dispatchers.IO) {
+                                DeviceTools.execute(c, toolName, toolArgs)
+                            }
+                        } else {
+                            DeviceTools.Result(
+                                false, toolName,
+                                "Cannot run device tools in this context.", "search"
+                            )
+                        }
+                        toolHeader = res.userText
+                        toolResult = res.modelText
                         addBlock("tool", toolHeader, "")
-                    }
-                } else {
-                    // DEVICE TOOL: executed locally via Android Intents (alarm,
-                    // timer, calendar, open app, clipboard, share).
-                    val c = ctx
-                    val res = if (c != null) {
-                        // IO dispatcher: get_location waits for a GPS/network
-                        // fix (seconds) and reverse-geocodes over HTTP —
-                        // must not block the main thread.
-                        withContext(Dispatchers.IO) {
-                            DeviceTools.execute(c, toolName, pendingToolArgs)
-                        }
-                    } else {
-                        DeviceTools.Result(
-                            false, toolName,
-                            "Cannot run device tools in this context.", "search"
-                        )
-                    }
-                    toolHeader = res.userText
-                    toolResult = res.modelText
-                    addBlock("tool", toolHeader, "")
                 }
 
                 toolExchanges.add(ToolExchange(
-                    callId = callId,
+                    callId = theCallId,
                     callName = toolName,
                     assistantContent = assistantContent,
-                    result = toolResult
+                    result = toolResult,
+                    // The REAL arguments: without them the model sees its
+                    // own call replayed with "{}" and calls the tool again.
+                    argsJson = toolArgs.ifBlank { "{}" }
                 ))
+                }
                 // Next round: the abilities stay declared (the model may call
                 // another one), but the web search does NOT (single search
                 // per turn).
@@ -498,6 +532,13 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     private var pendingToolName = ""
     private var pendingToolArgs = ""
 
+    /**
+     * EVERY tool call of the last round. A model can ask for several tools
+     * in one response — keeping only the last pair LOST the others, so the
+     * model asked again on the next round, forever ("tool spam").
+     */
+    private var pendingToolCalls: List<Triple<String, String, String>> = emptyList()
+
     /** Completed tool exchanges of the CURRENT turn (multi-search loop). */
     private val toolExchanges = mutableListOf<ToolExchange>()
 
@@ -523,6 +564,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         pendingToolId = ""
         pendingToolName = ""
         pendingToolArgs = ""
+        // EVERY call of this round (the model can ask for several at once).
+        val calls = mutableListOf<Triple<String, String, String>>()
+        // Reset BEFORE the stream: if this round asks for no tool at all,
+        // the list must be EMPTY (not the previous round's calls).
+        pendingToolCalls = emptyList()
         // Content streamed in THIS round (before a possible tool call).
         roundAnswer = ""
         LlmClient.chat(
@@ -547,12 +593,16 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                     pendingToolId = event.id
                     pendingToolName = event.name
                     pendingToolArgs = event.args
+                    // Keep EVERY call: several tools can be requested in the
+                    // same response and all of them must be executed.
+                    calls.add(Triple(event.id, event.name, event.args))
                 }
                 is StreamEvent.Error -> {
                     addBlock("answer", "\u26a0\ufe0f ${event.message}")
                 }
             }
         }
+        pendingToolCalls = calls
         return callId
     }
 
