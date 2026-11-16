@@ -139,7 +139,21 @@ data class AppConfig(
     /** Favorite FishAudio voices: JSON array of {id,title} */
     val fishFavorites: String = "[]",
     /** Saved custom endpoints: JSON array of {id,name,baseUrl} */
-    val customEndpoints: String = "[]"
+    val customEndpoints: String = "[]",
+    /**
+     * The WORKSPACE folder the user pointed at (SAF tree URI, e.g.
+     * content://com.android.externalstorage.documents/tree/primary%3ADownload).
+     * Empty = no folder chosen (the file tools then refuse to run).
+     *
+     * The URI is persisted with takePersistableUriPermission, so it stays
+     * valid across restarts.
+     */
+    val workspaceFolderUri: String = "",
+    /**
+     * The contacts permission was GRANTED (the user may revoke it in the
+     * system settings at any time — this only records our last state).
+     */
+    val contactsPermissionGranted: Boolean = false
 ) {
     /**
      * The active provider's keys (ALL of them). Empty = no key saved.
@@ -288,6 +302,8 @@ object AppSettings {
     private const val K_ACCENT_COLOR = "accent_color"
     private const val K_FISH_FAVORITES = "fish_favorites"
     private const val K_CUSTOM_ENDPOINTS = "custom_endpoints"
+    private const val K_WORKSPACE_FOLDER = "workspace_folder_uri"
+    private const val K_CONTACTS_PERMISSION = "contacts_permission_granted"
     private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
@@ -413,7 +429,9 @@ object AppSettings {
             allowedApps = p.getString(K_ALLOWED_APPS, "[]") ?: "[]",
             accentColor = p.getString(K_ACCENT_COLOR, "") ?: "",
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
-            customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]"
+            customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]",
+            workspaceFolderUri = p.getString(K_WORKSPACE_FOLDER, "") ?: "",
+            contactsPermissionGranted = p.getBoolean(K_CONTACTS_PERMISSION, false)
         )
     }
 
@@ -460,6 +478,8 @@ object AppSettings {
             .putString(K_ACCENT_COLOR, next.accentColor)
             .putString(K_FISH_FAVORITES, next.fishFavorites)
             .putString(K_CUSTOM_ENDPOINTS, next.customEndpoints)
+            .putString(K_WORKSPACE_FOLDER, next.workspaceFolderUri)
+            .putBoolean(K_CONTACTS_PERMISSION, next.contactsPermissionGranted)
             .apply()
         _config.value = next
     }

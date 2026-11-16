@@ -170,6 +170,42 @@ object LlmClient {
                 "longitude" to ("number" to "Longitude of the point"),
                 "label" to ("string" to "Short place label shown on the map pin")
             )
+        ),
+        ToolAbility.FILES to tool(
+            "write_file",
+            "Create or replace a TEXT file in the user's workspace folder (the folder they pointed at in Settings). Use it to save a report, a summary, a list or any text the user asks to keep.",
+            "filename" to "File name with extension, e.g. notes.txt or resumo-2026-11-16.md",
+            required = listOf("filename"),
+            extraProps = mapOf(
+                "content" to ("string" to "The full text to write into the file")
+            )
+        ),
+        ToolAbility.FILES to tool(
+            "read_file",
+            "Read a text file from the user's workspace folder. Use it before editing a file so you know its current content.",
+            "filename" to "File name with extension, e.g. notes.txt",
+            required = listOf("filename")
+        ),
+        ToolAbility.FILES to tool(
+            "list_files",
+            "List the files in the user's workspace folder, with their size in bytes. Use it to discover what is there before reading or writing.",
+            "_" to "No parameters needed"
+        ),
+        ToolAbility.FILES to tool(
+            "delete_file",
+            "Delete a file from the user's workspace folder. Only use it when the user explicitly asks to delete or remove that file.",
+            "filename" to "File name with extension, e.g. old-notes.txt",
+            required = listOf("filename")
+        ),
+        ToolAbility.MESSAGING to tool(
+            "send_message",
+            "Send a message to a contact of the user's agenda (WhatsApp, Telegram, SMS — whichever messaging app is installed). The contact is chosen by NAME from the user's contacts, and the message opens ready to send — the user confirms it before it goes.",
+            "contact" to "The contact's name as the user said it (partial name is fine)",
+            required = listOf("contact"),
+            extraProps = mapOf(
+                "message" to ("string" to "The message text to send"),
+                "app" to ("string" to "Optional messaging app to prefer: 'whatsapp', 'telegram', 'sms' — omit to let the user pick")
+            )
         )
     )
 

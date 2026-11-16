@@ -23,6 +23,10 @@ object ToolAbility {
     const val SHARE = "share"
     const val LOCATION = "location"
     const val MAP = "map"
+    /** The folder the user pointed at: create/read/list/delete files. */
+    const val FILES = "files"
+    /** Send a message to a contact of the agenda (WhatsApp and friends). */
+    const val MESSAGING = "messaging"
 
     /** Ability id -> the tool function names it covers (one or more). */
     val TOOLS: Map<String, List<String>> = mapOf(
@@ -33,7 +37,9 @@ object ToolAbility {
         CLIPBOARD to listOf("read_clipboard", "add_to_clipboard"),
         SHARE to listOf("share_text"),
         LOCATION to listOf("get_location"),
-        MAP to listOf("open_map")
+        MAP to listOf("open_map"),
+        FILES to listOf("write_file", "read_file", "list_files", "delete_file"),
+        MESSAGING to listOf("send_message")
     )
 
     /** The memory tools — their own group, independent from the abilities. */

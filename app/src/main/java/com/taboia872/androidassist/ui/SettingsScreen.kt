@@ -47,8 +47,10 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContactPage
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
@@ -70,6 +72,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -211,6 +214,16 @@ private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
             ToolAbility.MAP, Icons.Default.Map,
             Strings.abilityMap, Strings.abilityMapDesc
         )
+    ),
+    Strings.abilityGroupFiles to listOf(
+        AbilityRow(
+            ToolAbility.FILES, Icons.Default.Folder,
+            Strings.abilityFiles, Strings.abilityFilesDesc
+        ),
+        AbilityRow(
+            ToolAbility.MESSAGING, Icons.Default.Message,
+            Strings.abilityMessaging, Strings.abilityMessagingDesc
+        )
     )
 )
 
@@ -312,6 +325,35 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
     }
+    // ---- Workspace folder (SAF tree) + contacts permission -------------
+    var showWorkspaceFolderDialog by remember { mutableStateOf(false) }
+    // The tree picker: the user points at a folder; the grant is persisted
+    // so the folder stays reachable after a restart.
+    val workspaceFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val ok = com.taboia872.androidassist.tools.Workspace
+                .persistPermission(context, uri)
+            if (ok) {
+                // Release the OLD grant before taking the new one.
+                com.taboia872.androidassist.tools.Workspace.releasePermission(context)
+                AppSettings.update { it.copy(workspaceFolderUri = uri.toString()) }
+            } else {
+                android.widget.Toast.makeText(
+                    context,
+                    Strings.t(Strings.workspaceFolderNone),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        AppSettings.update { it.copy(contactsPermissionGranted = granted) }
+    }
+
     var showCalendarModeDialog by remember { mutableStateOf(false) }
     var calendarPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -750,7 +792,62 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     }
 
-                    // ---- 3. AGENDA (calendar specifics) -------------------
+                    // ---- 3. WORKSPACE + CONTACTS ---------------------------
+                    SettingsSection(title = Strings.t(Strings.abilityGroupFiles)) {
+                        val folderName = com.taboia872.androidassist.tools.Workspace
+                            .folderName(context)
+                        SettingsItem(
+                            icon = Icons.Default.Folder,
+                            title = Strings.t(Strings.workspaceFolderLabel),
+                            subtitle = if (cfg.workspaceFolderUri.isBlank())
+                                Strings.t(Strings.workspaceFolderNone)
+                            else if (folderName.isNotBlank())
+                                Strings.t(Strings.workspaceFolderSet) + " — " + folderName
+                            else Strings.t(Strings.workspaceFolderSet),
+                            onClick = { workspaceFolderLauncher.launch(null) }
+                        )
+                        if (cfg.workspaceFolderUri.isNotBlank()) {
+                            SettingsItem(
+                                icon = Icons.Default.Delete,
+                                title = Strings.t(Strings.workspaceFolderClear),
+                                subtitle = "",
+                                onClick = {
+                                    com.taboia872.androidassist.tools.Workspace
+                                        .releasePermission(context)
+                                    AppSettings.update { it.copy(workspaceFolderUri = "") }
+                                }
+                            )
+                        }
+                        val contactsGranted =
+                            context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
+                                android.content.pm.PackageManager.PERMISSION_GRANTED
+                        SettingsItem(
+                            icon = Icons.Default.ContactPage,
+                            title = Strings.t(Strings.contactsPermissionLabel),
+                            subtitle = if (contactsGranted)
+                                Strings.t(Strings.contactsPermissionGranted)
+                            else Strings.t(Strings.contactsPermissionDenied),
+                            onClick = {
+                                if (contactsGranted) {
+                                    // Let the user revoke it from the system.
+                                    val intent = Intent(
+                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                    }
+                                } else {
+                                    contactsPermissionLauncher.launch(
+                                        android.Manifest.permission.READ_CONTACTS
+                                    )
+                                }
+                            }
+                        )
+                    }
+
+                    // ---- 4. AGENDA (calendar specifics) -------------------
                     SettingsSection(title = Strings.t(Strings.abilityGroupAgenda)) {
                         SettingsItem(
                             icon = Icons.Default.Event,

@@ -45,6 +45,11 @@ object DeviceTools {
                 "share_text" -> shareText(context, args)
                 "get_location" -> getLocation(context)
                 "open_map" -> openMap(context, args)
+                "write_file" -> writeFile(context, args)
+                "read_file" -> readFile(context, args)
+                "list_files" -> listFiles(context)
+                "delete_file" -> deleteFile(context, args)
+                "send_message" -> sendMessage(context, args)
                 else -> Result(
                     ok = false,
                     userText = "? $name",
@@ -547,6 +552,177 @@ object DeviceTools {
         } catch (e: Exception) {
             Result(false, "\ud83d\udccd ?", "No map app handles geo: URIs: ${e.message}. " +
                 "Suggest installing Organic Maps or OsmAnd.", "location")
+        }
+    }
+
+    // ------------------------------------------------------------- files
+
+    /** The workspace folder must be chosen, or the file tools refuse to run. */
+    private fun workspaceMissing(): Result =
+        Result(
+            false, "\ud83d\udcc1 ?",
+            "No workspace folder is set. The user must point the app at a folder " +
+                "in Settings > Tools (Workspace folder) before file tools can run. " +
+                "Tell the user to set it.",
+            "files"
+        )
+
+    /** Create or replace a text file in the workspace folder. */
+    private fun writeFile(context: Context, args: org.json.JSONObject): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val name = args.optString("filename", "").trim()
+        if (name.isBlank()) {
+            return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
+        }
+        val content = args.optString("content", "")
+        val res = Workspace.writeTextFile(context, name, content)
+        return if (res.ok) {
+            Result(
+                true, "\ud83d\udcc1 ${res.message}",
+                "File '${res.message}' written to the workspace folder " +
+                    "(${content.length} characters).",
+                "files"
+            )
+        } else {
+            Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
+    }
+
+    /** Read a text file from the workspace folder. */
+    private fun readFile(context: Context, args: org.json.JSONObject): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val name = args.optString("filename", "").trim()
+        if (name.isBlank()) {
+            return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
+        }
+        val text = Workspace.readTextFile(context, name)
+            ?: return Result(
+                false, "\ud83d\udcc1 ?",
+                "No file named '$name' in the workspace folder. Use list_files to see " +
+                    "what is there.",
+                "files"
+            )
+        return Result(
+            true, "\ud83d\udcc1 $name",
+            "Contents of '$name' (${text.length} characters):\n---\n$text\n---",
+            "files"
+        )
+    }
+
+    /** List the files in the workspace folder. */
+    private fun listFiles(context: Context): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val files = Workspace.filesIn(context)
+        if (files.isEmpty()) {
+            return Result(
+                true, "\ud83d\udcc1 vazio",
+                "The workspace folder is empty — no files yet.",
+                "files"
+            )
+        }
+        val listing = files.joinToString("\n") { (n, size) -> "- $n ($size bytes)" }
+        return Result(
+            true, "\ud83d\udcc1 ${files.size} arquivo(s)",
+            "Files in the workspace folder:\n$listing",
+            "files"
+        )
+    }
+
+    /** Delete a file from the workspace folder. */
+    private fun deleteFile(context: Context, args: org.json.JSONObject): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val name = args.optString("filename", "").trim()
+        if (name.isBlank()) {
+            return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
+        }
+        val res = Workspace.deleteByName(context, name)
+        return if (res.ok) {
+            Result(true, "\ud83d\udcc1 $name apagado", "File '$name' deleted.", "files")
+        } else {
+            Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
+    }
+
+    // ---------------------------------------------------------- messaging
+
+    /**
+     * Open a messaging app with the message ready to send.
+     *
+     * The contact is resolved from the agenda by name; the messaging app is
+     * opened with the text PRE-FILLED and the user still taps "send" —
+     * no app may send in the user's name without that confirmation.
+     */
+    private fun sendMessage(context: Context, args: org.json.JSONObject): Result {
+        val contact = args.optString("contact", "").trim()
+        if (contact.isBlank()) {
+            return Result(
+                false, "\ud83d\udce4 ?",
+                "Tell the user which contact the message is for.",
+                "share"
+            )
+        }
+        val message = args.optString("message", "")
+        val preferred = args.optString("app", "").lowercase(Locale.ROOT)
+
+        val hits = Contacts.search(context, contact)
+        if (hits.isEmpty()) {
+            return Result(
+                false, "\ud83d\udce4 ?",
+                "No contact matching '$contact' was found in the agenda. " +
+                    "Ask the user for the exact name, or list what the tool found.",
+                "share"
+            )
+        }
+        val hit = hits.first()
+        val number = Contacts.toDialFormat(hit.phone)
+
+        // Package per preferred app; empty = let the system choose.
+        val packages = when (preferred) {
+            "whatsapp" -> listOf("com.whatsapp", "com.whatsapp.w4b")
+            "telegram" -> listOf("org.telegram.messenger")
+            "sms", "mms" -> listOf("com.google.android.apps.messaging")
+            else -> emptyList()
+        }
+        // Only pin the package when it is actually INSTALLED: a chooser
+        // with a missing target has nothing to show and the intent fails
+        // with no feedback.
+        val installed = packages.firstOrNull { pkg ->
+            try {
+                context.packageManager.getPackageInfo(pkg, 0)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+            putExtra("sms_body", message)
+            putExtra("android.intent.extra.TEXT", message)
+            if (installed != null) setPackage(installed)
+        }
+        val chooser = Intent.createChooser(send, null).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(chooser)
+            val who = if (hits.size > 1)
+                "${hit.name} (${hits.size} contacts matched — the user should check the one opened)"
+            else hit.name
+            Result(
+                true, "\ud83d\udce4 $who",
+                "The messaging app is open with the message to '$who' " +
+                    "(number $number) ready to send. The user confirms and sends it. " +
+                    "Do NOT claim the message was already sent.",
+                "share"
+            )
+        } catch (e: Exception) {
+            Result(
+                false, "\ud83d\udce4 ?",
+                "Could not open a messaging app: ${e.message}. " +
+                    "Suggest installing WhatsApp, Telegram or using SMS.",
+                "share"
+            )
         }
     }
 }

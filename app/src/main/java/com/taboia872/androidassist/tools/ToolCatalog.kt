@@ -26,6 +26,11 @@ object ToolCatalog {
         "share_text" to "open the share sheet with a text",
         "get_location" to "get the approximate current location",
         "open_map" to "show a place on a map app",
+        "write_file" to "write a text file in the workspace folder",
+        "read_file" to "read a text file from the workspace folder",
+        "list_files" to "list the files in the workspace folder",
+        "delete_file" to "delete a file from the workspace folder",
+        "send_message" to "send a message to a contact of the agenda",
         "save_memory" to "save a lasting memory about the user",
         "search_memories" to "search the memories already saved",
         "forget_memory" to "delete a memory that is wrong or outdated"
