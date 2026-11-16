@@ -289,38 +289,59 @@ object DeviceTools {
     // ------------------------------------------------------------- open app
 
     private fun openApp(context: Context, args: org.json.JSONObject): Result {
-        val wanted = args.optString("app_name", "").trim()
+        // Accept the common key variants: some models send "app" or "name".
+        val wanted = args.optString("app_name", "")
+            .ifBlank { args.optString("app", args.optString("name", "")) }
+            .trim()
+            // Some providers stringify a null argument as the literal "null".
+            .takeUnless { it.isBlank() || it == "null" } ?: ""
         if (wanted.isBlank()) {
             return Result(false, "\ud83d\udcf1 ?", "Which app? Provide app_name.", "app")
         }
         val pm = context.packageManager
         val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(mainIntent, 0)
-        val w = wanted.lowercase(Locale.ROOT)
+        // Normalize the wanted name the SAME way as the labels: lower case
+        // and WITHOUT accents ("musica" must match "Música").
+        val w = normalizeName(wanted)
 
         // User-curated whitelist (Tools tab): when not empty, ONLY those
         // packages may be opened by the model.
         val allowed = AppSettings.allowedAppList()
-        // best match: exact label > label contains > package contains
+        // best match: exact label > label starts with > word starts with >
+        // label contains > package contains
         var best: android.content.pm.ResolveInfo? = null
         var bestScore = -1
         for (ri in apps) {
             val label = try { ri.loadLabel(pm).toString() } catch (e: Exception) { "" }
             val pkg = ri.activityInfo.packageName
-            val l = label.lowercase(Locale.ROOT)
+            val l = normalizeName(label)
             val p = pkg.lowercase(Locale.ROOT)
             val score = when {
                 l == w -> 100
-                l.startsWith(w) -> 80
-                l.contains(w) -> 60
+                l.startsWith(w) -> 85
+                // word-boundary match: "spot" matches "Spotify", "map"
+                // matches "Google Maps" — but "ap" does NOT match "Maps".
+                wordStartsWith(l, w) -> 70
+                l.contains(w) -> 55
                 p.contains(w) -> 40
                 else -> -1
             }
             if (score > bestScore) { bestScore = score; best = ri }
         }
         if (best == null || bestScore < 0) {
+            // Listing a few candidates helps the model retry with the right
+            // name instead of giving up ("no app matches X").
+            val sample = apps.mapNotNull { ri ->
+                try { ri.loadLabel(pm).toString() } catch (e: Exception) { null }
+            }.filter { it.isNotBlank() }.distinct().take(8).joinToString(", ")
             return Result(false, "\ud83d\udcf1 ? '$wanted'",
-                "No installed app matches '$wanted'. Ask the user to check the name.", "app")
+                "No installed app matches '$wanted'." +
+                    if (sample.isNotBlank())
+                        " Apps available: $sample. Retry with one of these names."
+                    else
+                        " No launcher app could be listed at all (package " +
+                            "visibility blocked the query).", "app")
         }
         if (allowed.isNotEmpty() && !allowed.contains(best!!.activityInfo.packageName)) {
             return Result(false, "\ud83d\udcf1 '$wanted' bloqueado",
@@ -337,6 +358,33 @@ object DeviceTools {
             true, "\ud83d\udcf1 $label",
             "Opened the app '$label' (${best!!.activityInfo.packageName}).", "app"
         )
+    }
+
+    /**
+     * Lower case + strip accents, so "musica" matches "Música" and
+     * "map" matches "Google Maps".
+     */
+    private fun normalizeName(s: String): String {
+        val nfd = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+        return nfd.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+            .lowercase(Locale.ROOT)
+            .trim()
+    }
+
+    /**
+     * True when [needle] starts a WORD of [haystack] ("spot" matches
+     * "Spotify"; "ap" does NOT match "Maps").
+     */
+    private fun wordStartsWith(haystack: String, needle: String): Boolean {
+        if (needle.isBlank()) return false
+        var idx = haystack.indexOf(needle)
+        while (idx >= 0) {
+            val atStart = idx == 0
+            val before = if (atStart) ' ' else haystack[idx - 1]
+            if (atStart || !before.isLetterOrDigit()) return true
+            idx = haystack.indexOf(needle, idx + 1)
+        }
+        return false
     }
 
     // ------------------------------------------------------------- clipboard
@@ -527,8 +575,45 @@ object DeviceTools {
         val lat = args.optDouble("latitude", Double.NaN)
         val lon = args.optDouble("longitude", Double.NaN)
         val label = args.optString("label", "")
+        // A PLACE NAME instead of coordinates: "open the map" with no
+        // coordinates is a normal request, and refusing it made the tool
+        // look broken. geo:0,0?q=<place> opens the map app's search.
+        val place = args.optString("place", args.optString("query", ""))
+            .trim()
+            // Some providers stringify a null argument as the literal "null".
+            .takeUnless { it.isBlank() || it == "null" } ?: ""
         if (lat.isNaN() || lon.isNaN()) {
-            return Result(false, "\ud83d\udccd ?", "Provide latitude and longitude.", "location")
+            if (place.isBlank()) {
+                return Result(
+                    false, "\ud83d\udccd ?",
+                    "Provide latitude and longitude, OR a place name to search for.",
+                    "location"
+                )
+            }
+            val search = android.net.Uri.parse(
+                "geo:0,0?q=" + java.net.URLEncoder.encode(place, "UTF-8")
+            )
+            val searchIntent = Intent(Intent.ACTION_VIEW, search).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            return try {
+                context.startActivity(Intent.createChooser(searchIntent, null).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+                Result(
+                    true, "\ud83d\udccd $place",
+                    "Opened the map app searching for '$place'. " +
+                        "The user picks the map app in the chooser.",
+                    "location"
+                )
+            } catch (e: Exception) {
+                Result(
+                    false, "\ud83d\udccd ?",
+                    "No map app handles geo: URIs: ${e.message}. " +
+                        "Suggest installing Organic Maps or OsmAnd.",
+                    "location"
+                )
+            }
         }
         // geo:lat,lon?z=17&q=lat,lon(label) — works on Organic Maps,
         // woheller69 maps and OsmAnd; a chooser appears when several are

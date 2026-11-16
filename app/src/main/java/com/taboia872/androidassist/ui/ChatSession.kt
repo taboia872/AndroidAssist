@@ -227,13 +227,21 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
         turnJob = scope.launch {
             try {
-            // System prompt augmentation: models have no calendar. The
-            // no-think directive rides along when enabled.
+            // System prompt augmentation: models have no clock. The
+            // date AND the local time ride along, so the model can answer
+            // "what time is it" and do time-based reasoning (schedules,
+            // "in 2 hours", "tomorrow at 7"). The no-think directive rides
+            // along when enabled.
+            val now = java.util.Date()
             val today = java.text.SimpleDateFormat(
                 "yyyy-MM-dd (EEEE)", java.util.Locale.getDefault()
-            ).format(java.util.Date())
+            ).format(now)
+            val clock = java.text.SimpleDateFormat(
+                "HH:mm", java.util.Locale.getDefault()
+            ).format(now)
+            val zone = java.util.TimeZone.getDefault().id
             var basePrompt = AppSettings.config.value.systemPrompt +
-                "\n\nCurrent date: $today."
+                "\n\nCurrent date: $today.\nCurrent time: $clock ($zone)."
             if (AppSettings.config.value.noThink) {
                 basePrompt += "\n\nDo NOT produce any reasoning or thinking " +
                     "process; answer directly and concisely."

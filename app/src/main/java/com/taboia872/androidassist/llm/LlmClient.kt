@@ -163,11 +163,11 @@ object LlmClient {
         ),
         ToolAbility.MAP to tool(
             "open_map",
-            "Open a point on the map in the user's preferred map app (a chooser appears if several are installed). Use after get_location when the user wants to SEE a place.",
-            "latitude" to "Latitude of the point",
-            required = listOf("latitude"),
+            "Open the map on the user's phone. Give EITHER a place name (to search for it) OR a latitude/longitude pair (to show a precise point). When the user just says 'open the map', use a place name or the current location from get_location.",
+            "place" to "Place name to search for, e.g. 'padaria perto de casa'. Leave empty when giving coordinates.",
             extraProps = mapOf(
-                "longitude" to ("number" to "Longitude of the point"),
+                "latitude" to ("number" to "Latitude of the point (only with longitude)"),
+                "longitude" to ("number" to "Longitude of the point (only with latitude)"),
                 "label" to ("string" to "Short place label shown on the map pin")
             )
         ),
