@@ -51,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -90,14 +91,31 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit
 ) {
-    // Browser-style: the top bar hides when the chat scrolls DOWN and comes
-    // back when you scroll up (enterAlways).
-    val topBarBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val cfg by AppSettings.config.collectAsState()
     val context = LocalContext.current
     // App-scoped session: streaming and the end-of-turn save survive
     // navigation (Settings/History) and backgrounding.
     val session = ChatSessions.main
+    // Browser-style: the top bar hides when the chat scrolls DOWN and comes
+    // back when you scroll up (enterAlways).
+    //
+    // With NO chat started there is nothing to scroll, so the bar must NOT
+    // collapse (user request): canScroll gates the whole nested-scroll
+    // handling. The lambda reads the live message list, so the bar starts
+    // collapsing the moment the first message arrives.
+    val topBarState = rememberTopAppBarState()
+    val topBarBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(
+        state = topBarState,
+        canScroll = remember(session) { { session.messages.isNotEmpty() } }
+    )
+    // A new (empty) chat brings the bar back — it never stays hidden.
+    val hasMessages = session.messages.isNotEmpty()
+    LaunchedEffect(hasMessages) {
+        if (!hasMessages) {
+            topBarState.heightOffset = 0f
+            topBarState.contentOffset = 0f
+        }
+    }
     // Load a history-picked chat ONCE and clear the request — re-entering the
     // screen from Settings must not reload it again over the live conversation.
     LaunchedEffect(resumeChatId) {
