@@ -42,8 +42,8 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 
 | # | Item | Esforço | Impacto | Status |
 |---|---|---|---|---|
-| 1 | **(a) Pasta apontada + tools de arquivo** | médio | alto | **EM ANDAMENTO** |
-| 2 | **(e) Contato + WhatsApp** | médio | alto | **EM ANDAMENTO** (junto com (a)) |
+| 1 | **(a) Pasta apontada + tools de arquivo** | médio | alto | ✅ **FEITO** (commit `493e508`) |
+| 2 | **(e) Contato + WhatsApp** | médio | alto | ✅ **FEITO** (commit `493e508`) |
 | 3 | (d) `play_media` — tocar música | baixo | alto | pendente |
 | 4 | (c) `modelVision` — pipeline de imagem | médio | médio | pendente |
 | 5 | (b) Agendamento de tarefas | alto | alto | pendente (por último) |
@@ -56,18 +56,18 @@ de um padrão de permissão (`READ_CONTACTS`). As duas são **tools novas no mes
 mecanismo**: `ToolAbility` + `DeviceTools` + `AppSettings` + a aba Ferramentas.
 Fazê-las no mesmo ciclo evita dois passes pelo mesmo código.
 
-### Ordem de implementação dentro do ciclo (a)+(e)
+### O que foi feito em (a)+(e) — commits `493e508` + `326c71a`
 
-1. `AppSettings`: campos `workspaceFolderUri` (a pasta apontada) e
-   `contactsPermissionGranted` / cache de contatos.
-2. SAF: `SettingsScreen` → botão "escolher pasta" (`ACTION_OPEN_DOCUMENT_TREE`)
-   + `takePersistableUriPermission`.
-3. Tools de arquivo: `write_file`, `read_file`, `list_dir`, `delete_file`
-   (DocumentFile / `DocumentsContract`).
-4. Tool de contato: `send_message` — resolve nome→telefone via `ContactsContract`
-   e abre o WhatsApp/ mensageiro com o texto **pré-preenchido** (a plataforma
-   exige a confirmação final do usuário).
-5. Backup: passar a gravar também na pasta apontada, se existir.
+1. ✅ `AppSettings`: `workspaceFolderUri` + `contactsPermissionGranted`.
+2. ✅ SAF: `SettingsScreen` → botão "escolher pasta" (`OpenDocumentTree`)
+   + `takePersistableUriPermission` (o grant persiste após restart).
+3. ✅ Tools de arquivo: `write_file`, `read_file`, `list_files`, `delete_file`
+   (`tools/Workspace.kt`, via `DocumentsContract`).
+4. ✅ Tool de contato: `send_message` — resolve nome→telefone via
+   `ContactsContract` (`tools/Contacts.kt`, busca sem acento) e abre o
+   WhatsApp/Telegram/SMS com o texto **pré-preenchido**.
+5. ⏳ **PENDENTE**: o backup ainda grava só via SAF (`CreateDocument`), não
+   direto na pasta apontada. É o próximo passo natural de (a).
 
 ### Por que (b) fica por último
 
