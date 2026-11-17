@@ -47,7 +47,8 @@ object DeviceTools {
                 "open_map" -> openMap(context, args)
                 "write_file" -> writeFile(context, args)
                 "read_file" -> readFile(context, args)
-                "list_files" -> listFiles(context)
+                "list_files" -> listFiles(context, args)
+                "create_folder" -> createFolder(context, args)
                 "delete_file" -> deleteFile(context, args)
                 "send_message" -> sendMessage(context, args)
                 else -> Result(
@@ -670,12 +671,15 @@ object DeviceTools {
             return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
         }
         val content = args.optString("content", "")
-        val res = Workspace.writeTextFile(context, name, content)
+        val folder = args.optString("folder", "").trim()
+        val res = Workspace.writeTextFile(context, name, content, folder)
         return if (res.ok) {
             Result(
                 true, "\ud83d\udcc1 ${res.message}",
                 "File '${res.message}' written to the workspace folder " +
-                    "(${content.length} characters).",
+                    "(${content.length} characters)" +
+                    if (folder.isEmpty()) "."
+                    else ", inside the folder '$folder'.",
                 "files"
             )
         } else {
@@ -690,11 +694,12 @@ object DeviceTools {
         if (name.isBlank()) {
             return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
         }
-        val text = Workspace.readTextFile(context, name)
+        val folder = args.optString("folder", "").trim()
+        val where = if (folder.isEmpty()) "the workspace folder" else "the folder '$folder'"
+        val text = Workspace.readTextFile(context, name, folder)
             ?: return Result(
                 false, "\ud83d\udcc1 ?",
-                "No file named '$name' in the workspace folder. Use list_files to see " +
-                    "what is there.",
+                "No file named '$name' in $where. Use list_files to see what is there.",
                 "files"
             )
         return Result(
@@ -704,23 +709,65 @@ object DeviceTools {
         )
     }
 
-    /** List the files in the workspace folder. */
-    private fun listFiles(context: Context): Result {
+    /**
+     * List what is inside a folder of the workspace: the files AND the
+     * subfolders.
+     *
+     * The optional "folder" argument goes INTO a subfolder of the
+     * workspace root ("" = the root itself).
+     */
+    private fun listFiles(context: Context, args: org.json.JSONObject): Result {
         if (Workspace.folderUri() == null) return workspaceMissing()
-        val files = Workspace.filesIn(context)
-        if (files.isEmpty()) {
+        val folder = args.optString("folder", "").trim()
+        val entries = Workspace.entriesIn(context, folder)
+            ?: return Result(
+                false, "\ud83d\udcc1 ?",
+                "There is no folder named '$folder' in the workspace folder. " +
+                    "Use list_files without arguments to see the top level.",
+                "files"
+            )
+        val where = if (folder.isEmpty()) "the workspace folder" else "the folder '$folder'"
+        if (entries.isEmpty()) {
             return Result(
                 true, "\ud83d\udcc1 vazio",
-                "The workspace folder is empty — no files yet.",
+                "The $where is empty — no files and no subfolders yet.",
                 "files"
             )
         }
-        val listing = files.joinToString("\n") { (n, size) -> "- $n ($size bytes)" }
+        val listing = entries.joinToString("\n") { e ->
+            if (e.isFolder) "- ${e.name}/ (folder)"
+            else "- ${e.name} (${e.size} bytes)"
+        }
+        val fileCount = entries.count { !it.isFolder }
+        val folderCount = entries.size - fileCount
         return Result(
-            true, "\ud83d\udcc1 ${files.size} arquivo(s)",
-            "Files in the workspace folder:\n$listing",
+            true, "\ud83d\udcc1 ${entries.size} item(ns)",
+            "Contents of $where:\n$listing\n\n" +
+                "Use list_files with folder=\"<name>\" to go into a subfolder.",
             "files"
         )
+    }
+
+    /** Create a FOLDER inside the workspace (or inside one of its subfolders). */
+    private fun createFolder(context: Context, args: org.json.JSONObject): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val name = args.optString("name", "").trim()
+        if (name.isBlank()) {
+            return Result(false, "\ud83d\udcc1 ?", "The folder name is empty.", "files")
+        }
+        val inside = args.optString("folder", "").trim()
+        val res = Workspace.createFolder(context, name, inside)
+        return if (res.ok) {
+            Result(
+                true, "\ud83d\udcc1 ${res.message}/",
+                "Folder '${res.message}' created" +
+                    if (inside.isEmpty()) " in the workspace folder."
+                    else " inside '$inside'.",
+                "files"
+            )
+        } else {
+            Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
     }
 
     /** Delete a file from the workspace folder. */
@@ -730,7 +777,8 @@ object DeviceTools {
         if (name.isBlank()) {
             return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
         }
-        val res = Workspace.deleteByName(context, name)
+        val folder = args.optString("folder", "").trim()
+        val res = Workspace.deleteByName(context, name, folder)
         return if (res.ok) {
             Result(true, "\ud83d\udcc1 $name apagado", "File '$name' deleted.", "files")
         } else {

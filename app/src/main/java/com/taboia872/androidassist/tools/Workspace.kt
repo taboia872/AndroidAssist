@@ -8,7 +8,7 @@ import com.taboia872.androidassist.settings.AppSettings
 
 /**
  * The WORKSPACE folder: a system folder the user pointed at once, where the
- * assistant can create, read and list files.
+ * assistant can create, read and list files and subfolders.
  *
  * Android's Storage Access Framework (SAF) is the only way an app can write
  * outside its own sandbox WITHOUT a dangerous permission: the user picks a
@@ -17,6 +17,10 @@ import com.taboia872.androidassist.settings.AppSettings
  * in AppSettings instead of being re-requested every time.
  *
  * Everything here works on the tree URI; no absolute paths, no MediaStore.
+ *
+ * FOLDERS: SAF addresses a document by its id, so a subfolder has to be
+ * looked up by name before its children can be listed. Paths are relative to
+ * the workspace root and use "/" as the separator ("", "Notes", "Notes/2026").
  */
 object Workspace {
 
@@ -84,7 +88,7 @@ object Workspace {
     }
 
     /**
-     * The URI that LISTS the children of the workspace folder.
+     * The URI that LISTS the children of the workspace root.
      *
      * CRITICAL: `buildDocumentUriUsingTree` points at the directory ITSELF
      * (querying it returns a single row — the folder), while
@@ -92,49 +96,148 @@ object Workspace {
      * Listing/looking up files needs the second one; using the first made
      * list_files/read_file/delete_file never find anything.
      */
-    private fun childrenUri(tree: android.net.Uri): android.net.Uri =
+    private fun childrenUri(tree: Uri): Uri =
         DocumentsContract.buildChildDocumentsUriUsingTree(
             tree, DocumentsContract.getTreeDocumentId(tree)
         )
 
-    /** Build the URI of a child document by NAME inside the workspace. */
-    private fun childUri(context: Context, name: String): Uri? {
-        val tree = folderUri() ?: return null
+    /**
+     * The document id of the FOLDER at [path] (relative to the root).
+     *
+     * "" = the root itself. "Notes" = the "Notes" subfolder.
+     * "Notes/2026" = a folder inside a folder.
+     *
+     * Returns null when any segment does not exist (or is not a folder).
+     */
+    private fun folderDocId(context: Context, tree: Uri, path: String): String? {
+        var currentId = DocumentsContract.getTreeDocumentId(tree)
+        val segments = path.split('/').map { it.trim() }.filter { it.isNotEmpty() }
+        for (segment in segments) {
+            val nextId = childDocId(context, tree, currentId, segment, foldersOnly = true)
+                ?: return null
+            currentId = nextId
+        }
+        return currentId
+    }
+
+    /**
+     * The document id of a child by NAME inside the folder [parentId].
+     *
+     * With [foldersOnly] the child has to be a directory — that is how a
+     * path segment is resolved.
+     */
+    private fun childDocId(
+        context: Context,
+        tree: Uri,
+        parentId: String,
+        name: String,
+        foldersOnly: Boolean = false
+    ): String? {
+        val queryUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
         return try {
             context.contentResolver.query(
-                childrenUri(tree),
+                queryUri,
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
                 ),
                 null, null, null
             )?.use { c ->
                 val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                 val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                var found: String? = null
                 // Start at the FIRST row: a bare moveToNext() skips it.
                 if (c.moveToFirst()) {
                     do {
                         val docName = if (nameCol >= 0) c.getString(nameCol) else null
-                        if (docName == name) {
-                            val docId = if (idCol >= 0) c.getString(idCol) else null
-                            if (docId != null) {
-                                // A labeled return: a plain `return` here
-                                // would return from the `use` lambda (Unit).
-                                return@use DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+                        val mime = if (mimeCol >= 0) c.getString(mimeCol) else null
+                        val isFolder = mime == DocumentsContract.Document.MIME_TYPE_DIR
+                        if (docName == name && (!foldersOnly || isFolder)) {
+                            val id = if (idCol >= 0) c.getString(idCol) else null
+                            if (id != null) {
+                                found = id
+                                break
                             }
                         }
                     } while (c.moveToNext())
                 }
-                null
+                found
             }
         } catch (e: Exception) {
             null
         }
     }
 
+    /**
+     * One entry of a folder listing: a FILE or a FOLDER.
+     *
+     * The folders matter as much as the files: the assistant has to be able
+     * to see the subfolders of the pointed folder and go into them.
+     */
+    data class Entry(
+        val name: String,
+        val size: Long,
+        val isFolder: Boolean
+    )
+
+    /**
+     * The CONTENT of a folder: the files AND the subfolders.
+     *
+     * [path] is the folder, relative to the workspace root ("" = the root
+     * itself). Returns null when the folder does not exist, so the caller
+     * can tell "empty" from "not there".
+     */
+    fun entriesIn(context: Context, path: String = ""): List<Entry>? {
+        val tree = folderUri() ?: return null
+        val parentId = folderDocId(context, tree, path) ?: return null
+        val queryUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
+        return try {
+            context.contentResolver.query(
+                queryUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null, null, null
+            )?.use { c ->
+                val out = mutableListOf<Entry>()
+                val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                // Start at the FIRST row: a bare moveToNext() skips it.
+                if (c.moveToFirst()) {
+                    do {
+                        val n = if (nameCol >= 0) c.getString(nameCol) else null
+                        if (n.isNullOrBlank()) continue
+                        val mime = if (mimeCol >= 0) c.getString(mimeCol) else null
+                        val isFolder = mime == DocumentsContract.Document.MIME_TYPE_DIR
+                        val size = if (isFolder) 0L
+                        else if (sizeCol >= 0) c.getLong(sizeCol) else 0L
+                        out.add(Entry(n, size, isFolder))
+                    } while (c.moveToNext())
+                }
+                out
+            } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Build the URI of a child FILE by NAME inside [path]. */
+    private fun childUri(context: Context, name: String, path: String = ""): Uri? {
+        val tree = folderUri() ?: return null
+        val parentId = folderDocId(context, tree, path) ?: return null
+        val docId = childDocId(context, tree, parentId, name, foldersOnly = false)
+            ?: return null
+        return DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+    }
+
     /** Read a file's whole text. Returns null when it does not exist. */
-    fun readTextFile(context: Context, name: String): String? {
-        val uri = childUri(context, name) ?: return null
+    fun readTextFile(context: Context, name: String, path: String = ""): String? {
+        val uri = childUri(context, name, path) ?: return null
         return try {
             context.contentResolver.openInputStream(uri)?.use {
                 it.readBytes().toString(Charsets.UTF_8)
@@ -150,7 +253,12 @@ object Workspace {
      * Replace = delete the old one first, then create: some providers refuse
      * to create a document whose name already exists.
      */
-    fun writeTextFile(context: Context, name: String, content: String): Result {
+    fun writeTextFile(
+        context: Context,
+        name: String,
+        content: String,
+        path: String = ""
+    ): Result {
         val tree = folderUri()
             ?: return Result(false, "No workspace folder chosen — set one in Settings > Tools.")
         val safeName = name.trim().substringAfterLast('/')
@@ -158,13 +266,18 @@ object Workspace {
             return Result(false, "The file name is empty.")
         }
         return try {
-            val parent = DocumentsContract.buildDocumentUriUsingTree(
-                tree, DocumentsContract.getTreeDocumentId(tree)
-            )
+            val parentId = folderDocId(context, tree, path)
+                ?: return Result(false, "The folder '$path' does not exist.")
+            // The parent for createDocument is the DIRECTORY uri, not the
+            // children uri.
+            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(tree, parentId)
             // Replace an existing file of the same name.
-            childUri(context, safeName)?.let { old ->
+            childDocId(context, tree, parentId, safeName)?.let { oldId ->
                 try {
-                    DocumentsContract.deleteDocument(context.contentResolver, old)
+                    DocumentsContract.deleteDocument(
+                        context.contentResolver,
+                        DocumentsContract.buildDocumentUriUsingTree(tree, oldId)
+                    )
                 } catch (e: Exception) {
                     // Some providers refuse deletion — fall through and try
                     // to create anyway.
@@ -175,7 +288,7 @@ object Workspace {
             // "resumo.md" into "resumo.txt").
             val mime = mimeFor(safeName)
             val created = DocumentsContract.createDocument(
-                context.contentResolver, parent, mime, safeName
+                context.contentResolver, parentDoc, mime, safeName
             ) ?: return Result(false, "Could not create '$safeName' in the workspace folder.")
             // Default "w" mode: truncates and is supported by every
             // provider (the "wt" mode is not).
@@ -231,51 +344,86 @@ object Workspace {
     }
 
     /** Delete a file by name. */
-    fun deleteByName(context: Context, name: String): Result {
-        val uri = childUri(context, name)
+    fun deleteByName(context: Context, name: String, path: String = ""): Result {
+        val tree = folderUri()
+            ?: return Result(false, "No workspace folder chosen — set one in Settings > Tools.")
+        val parentId = folderDocId(context, tree, path)
+            ?: return Result(false, "The folder '$path' does not exist.")
+        val docId = childDocId(context, tree, parentId, name, foldersOnly = false)
             ?: return Result(false, "No file named '$name' in the workspace folder.")
         return try {
-            DocumentsContract.deleteDocument(context.contentResolver, uri)
+            DocumentsContract.deleteDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+            )
             Result(true, name)
         } catch (e: Exception) {
             Result(false, "Could not delete '$name': ${e.message}")
         }
     }
 
-    /** The files in the workspace folder (name + size in bytes). */
-    fun filesIn(context: Context): List<Pair<String, Long>> {
-        val tree = folderUri() ?: return emptyList()
-        return try {
-            context.contentResolver.query(
-                childrenUri(tree),
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_SIZE,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
-                ),
-                null, null, null
-            )?.use { c ->
-                val out = mutableListOf<Pair<String, Long>>()
-                val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
-                val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                // Start at the FIRST row: a bare moveToNext() skips it.
-                if (c.moveToFirst()) {
-                    do {
-                        val n = if (nameCol >= 0) c.getString(nameCol) else null
-                        if (n.isNullOrBlank()) continue
-                        // Folders are not files.
-                        val mime = if (mimeCol >= 0) c.getString(mimeCol) else null
-                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) continue
-                        val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
-                        out.add(n to size)
-                    } while (c.moveToNext())
-                }
-                out
-            } ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
+    /**
+     * Create a FOLDER inside the workspace (or inside one of its
+     * subfolders).
+     *
+     * SAF has no "mkdir": a directory is a document whose MIME type is
+     * MIME_TYPE_DIR, created with createDocument() — the same call that
+     * creates a file, with another MIME.
+     */
+    fun createFolder(context: Context, name: String, path: String = ""): Result {
+        val tree = folderUri()
+            ?: return Result(false, "No workspace folder chosen — set one in Settings > Tools.")
+        val safeName = name.trim().substringAfterLast('/')
+        if (safeName.isBlank()) {
+            return Result(false, "The folder name is empty.")
         }
+        return try {
+            val parentId = folderDocId(context, tree, path)
+                ?: return Result(false, "The folder '$path' does not exist.")
+            // Already there? Do not create a second one.
+            if (childDocId(context, tree, parentId, safeName, foldersOnly = true) != null) {
+                return Result(true, safeName)
+            }
+            val parentDoc = DocumentsContract.buildDocumentUriUsingTree(tree, parentId)
+            val created = DocumentsContract.createDocument(
+                context.contentResolver, parentDoc,
+                DocumentsContract.Document.MIME_TYPE_DIR, safeName
+            ) ?: return Result(false, "Could not create the folder '$safeName'.")
+            Result(true, safeName)
+        } catch (e: Exception) {
+            Result(false, "Could not create the folder '$safeName': ${e.message}")
+        }
+    }
+
+    /**
+     * Create the folder at [path] if it is missing, and return its URI.
+     *
+     * Used by the backup: the app owns a folder inside the workspace and
+     * has to be able to recreate it (the user may delete it).
+     */
+    fun ensureFolder(context: Context, path: String): Uri? {
+        val tree = folderUri() ?: return null
+        val segments = path.split('/').map { it.trim() }.filter { it.isNotEmpty() }
+        if (segments.isEmpty()) return null
+        var currentId = DocumentsContract.getTreeDocumentId(tree)
+        for (segment in segments) {
+            val existing = childDocId(context, tree, currentId, segment, foldersOnly = true)
+            val id = existing ?: run {
+                // A null result means the provider refused to create it.
+                DocumentsContract.createDocument(
+                    context.contentResolver,
+                    DocumentsContract.buildDocumentUriUsingTree(tree, currentId),
+                    DocumentsContract.Document.MIME_TYPE_DIR,
+                    segment
+                ) ?: return null
+                // Look the new folder up by name: the id of the CREATED
+                // uri is not dependable across providers.
+                childDocId(context, tree, currentId, segment, foldersOnly = true)
+                    ?: return null
+            }
+            currentId = id
+        }
+        return DocumentsContract.buildDocumentUriUsingTree(tree, currentId)
     }
 
     /**

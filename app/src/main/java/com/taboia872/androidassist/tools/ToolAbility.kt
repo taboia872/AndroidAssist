@@ -38,7 +38,7 @@ object ToolAbility {
         SHARE to listOf("share_text"),
         LOCATION to listOf("get_location"),
         MAP to listOf("open_map"),
-        FILES to listOf("write_file", "read_file", "list_files", "delete_file"),
+        FILES to listOf("write_file", "read_file", "list_files", "create_folder", "delete_file"),
         MESSAGING to listOf("send_message")
     )
 

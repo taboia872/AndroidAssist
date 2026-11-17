@@ -185,25 +185,42 @@ object LlmClient {
             "filename" to "File name with extension, e.g. notes.txt or resumo-2026-11-16.md",
             required = listOf("filename"),
             extraProps = mapOf(
-                "content" to ("string" to "The full text to write into the file")
+                "content" to ("string" to "The full text to write into the file"),
+                "folder" to ("string" to "Optional subfolder of the workspace to write into, e.g. Notes. Leave empty for the workspace root.")
             )
         ),
         ToolAbility.FILES to tool(
             "read_file",
             "Read a text file from the user's workspace folder. Use it before editing a file so you know its current content.",
             "filename" to "File name with extension, e.g. notes.txt",
-            required = listOf("filename")
+            required = listOf("filename"),
+            extraProps = mapOf(
+                "folder" to ("string" to "Optional subfolder of the workspace to read from, e.g. Notes. Leave empty for the workspace root.")
+            )
         ),
         ToolAbility.FILES to tool(
             "list_files",
-            "List the files in the user's workspace folder, with their size in bytes. Use it to discover what is there before reading or writing.",
-            "_" to "No parameters needed"
+            "List what is inside a folder of the user's workspace: the files AND the subfolders. Use it to discover what is there before reading or writing.",
+            "folder" to "Optional subfolder to list, e.g. Notes. Leave empty to list the workspace root.",
+            required = emptyList()
+        ),
+        ToolAbility.FILES to tool(
+            "create_folder",
+            "Create a FOLDER (subdirectory) inside the user's workspace folder. Use it when the user asks to organize files into a folder.",
+            "name" to "Name of the new folder, e.g. Notas or Relatorios",
+            required = listOf("name"),
+            extraProps = mapOf(
+                "folder" to ("string" to "Optional subfolder to create it inside. Leave empty to create it in the workspace root.")
+            )
         ),
         ToolAbility.FILES to tool(
             "delete_file",
             "Delete a file from the user's workspace folder. Only use it when the user explicitly asks to delete or remove that file.",
             "filename" to "File name with extension, e.g. old-notes.txt",
-            required = listOf("filename")
+            required = listOf("filename"),
+            extraProps = mapOf(
+                "folder" to ("string" to "Optional subfolder of the workspace to delete from, e.g. Notes. Leave empty for the workspace root.")
+            )
         ),
         ToolAbility.MESSAGING to tool(
             "send_message",
