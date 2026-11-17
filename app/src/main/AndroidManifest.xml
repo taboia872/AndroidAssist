@@ -17,6 +17,13 @@
     <!-- send_message: resolve the contact by name in the agenda
          (runtime permission, asked only when the user enables it) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- play_media / list_media: read the audio library of the device
+         (the user's music). Android 13+ asks for READ_MEDIA_AUDIO;
+         older versions use READ_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <!-- open_map resolves geo: URIs; visible map apps are queried at runtime -->
 
 
@@ -47,6 +54,11 @@
         <intent>
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="text/plain" />
+        </intent>
+        <!-- play_media: the music player apps must be visible (API 30+) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="audio/*" />
         </intent>
         <!-- open_app: the launcher apps the assistant may open. WITHOUT
              this, queryIntentActivities(MAIN/LAUNCHER) returns an EMPTY

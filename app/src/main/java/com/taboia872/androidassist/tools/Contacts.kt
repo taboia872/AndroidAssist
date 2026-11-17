@@ -28,7 +28,7 @@ object Contacts {
     fun search(context: Context, query: String): List<Hit> {
         val q = query.trim()
         if (q.isBlank()) return emptyList()
-        val needle = normalize(q)
+        val needle = TextNormalize.normalize(q)
         if (needle.isBlank()) return emptyList()
         val out = mutableListOf<Hit>()
         val seen = mutableSetOf<String>()
@@ -50,9 +50,9 @@ object Contacts {
                         val name = if (nameCol >= 0) c.getString(nameCol) else null
                         val number = if (numCol >= 0) c.getString(numCol) else null
                         if (name.isNullOrBlank() || number.isNullOrBlank()) continue
-                        if (!normalize(name).contains(needle)) continue
+                        if (!TextNormalize.normalize(name).contains(needle)) continue
                         // One hit per person (the first number is enough).
-                        val key = normalize(name)
+                        val key = TextNormalize.normalize(name)
                         if (!seen.add(key)) continue
                         out.add(Hit(name, number.trim()))
                     } while (c.moveToNext())
@@ -68,12 +68,7 @@ object Contacts {
     }
 
     /** Strip accents and lowercase, so "joao" matches "João". */
-    private fun normalize(s: String): String {
-        val nfd = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
-        return nfd.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
-            .lowercase(java.util.Locale.ROOT)
-            .trim()
-    }
+
 
     /**
      * The number in the dial format a messaging app expects: only digits and
