@@ -4,7 +4,7 @@ Estratégia e backlog de funcionalidades. **Este arquivo é a fonte da verdade d
 que está planejado** — se um chat encher, retome lendo este arquivo + a skill
 `androidassist-app` (regras, armadilhas, fluxo de build).
 
-Última atualização: 2026-11-16 (após o release v0.3.0).
+Última atualização: 2026-11-17 (subpastas + pasta de backup).
 
 ---
 
@@ -28,7 +28,8 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 
 | Capacidade | Status |
 |---|---|
-| Pasta apontada + tools de arquivo | ❌ não existe |
+| Pasta apontada + tools de arquivo | ✅ feito (`493e508` + `359a4dd`) — inclusive subpastas |
+| Pasta de backup dentro da pasta apontada | ✅ feito (`96a8c57`) |
 | Agendamento de tarefa (executor em background) | ❌ não existe (manifest sem nenhum `receiver`, sem `BOOT_COMPLETED`, sem `FOREGROUND_SERVICE`) |
 | Página HTML gerada + link no chat | ❌ não existe (nenhum `WebView` no app) |
 | Modelo por tarefa / pipeline imagem→principal | ❌ não existe (`AppConfig` tem UM `model`) |
@@ -66,8 +67,13 @@ Fazê-las no mesmo ciclo evita dois passes pelo mesmo código.
 4. ✅ Tool de contato: `send_message` — resolve nome→telefone via
    `ContactsContract` (`tools/Contacts.kt`, busca sem acento) e abre o
    WhatsApp/Telegram/SMS com o texto **pré-preenchido**.
-5. ⏳ **PENDENTE**: o backup ainda grava só via SAF (`CreateDocument`), não
-   direto na pasta apontada. É o próximo passo natural de (a).
+5. ✅ **FEITO** (commit `96a8c57`): o backup grava direto na pasta do app
+   dentro da pasta apontada — `<pasta>/AndroidAssist/backups/`. O botão de
+   exportar não abre mais o seletor do sistema e o de importar restaura o
+   backup mais recente da pasta.
+6. ✅ **FEITO** (commit `359a4dd`): subpastas. `list_files` devolve arquivos
+   **e** pastas, todas as tools de arquivo aceitam `folder` (caminho
+   relativo à raiz) e há a tool `create_folder`.
 
 ### Por que (b) fica por último
 
