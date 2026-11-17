@@ -363,6 +363,114 @@ object Workspace {
     }
 
     /**
+     * Delete a FOLDER (and everything inside it).
+     *
+     * SAF has no "rm -r": a folder is deleted like any other document, but
+     * many providers REFUSE to delete a folder that still has content. So
+     * the children go first, recursively, and only then the folder.
+     *
+     * Returns the number of items removed (files + folders).
+     */
+    /** Is there a FOLDER with this name inside [path]? */
+    fun isFolder(context: Context, name: String, path: String = ""): Boolean {
+        val tree = folderUri() ?: return false
+        val safeName = name.trim().substringAfterLast('/')
+        if (safeName.isBlank()) return false
+        return try {
+            val parentId = folderDocId(context, tree, path) ?: return false
+            childDocId(context, tree, parentId, safeName, foldersOnly = true) != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun deleteFolder(context: Context, name: String, path: String = ""): Result {
+        val tree = folderUri()
+            ?: return Result(false, "No workspace folder chosen — set one in Settings > Tools.")
+        val safeName = name.trim().substringAfterLast('/')
+        if (safeName.isBlank()) {
+            return Result(false, "The folder name is empty.")
+        }
+        return try {
+            val parentId = folderDocId(context, tree, path)
+                ?: return Result(false, "The folder '$path' does not exist.")
+            val docId = childDocId(context, tree, parentId, safeName, foldersOnly = true)
+                ?: return Result(false, "No folder named '$safeName' in the workspace folder.")
+            val removed = deleteTree(context, tree, docId)
+            if (removed < 0) {
+                Result(false, "Could not delete the folder '$safeName'.")
+            } else {
+                Result(true, "$safeName ($removed item(s) removed)")
+            }
+        } catch (e: Exception) {
+            Result(false, "Could not delete the folder '$safeName': ${e.message}")
+        }
+    }
+
+    /**
+     * Delete a document and everything under it. Returns the number of
+     * removed items, or -1 when the provider refused.
+     */
+    private fun deleteTree(context: Context, tree: Uri, docId: String): Int {
+        // The children first: a provider usually refuses to delete a
+        // folder that is not empty.
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+        val children = try {
+            context.contentResolver.query(
+                childUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null, null, null
+            )?.use { c ->
+                val out = mutableListOf<Pair<String, Boolean>>()
+                val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                // Start at the FIRST row: a bare moveToNext() skips it.
+                if (c.moveToFirst()) {
+                    do {
+                        val id = if (idCol >= 0) c.getString(idCol) else null
+                        val mime = if (mimeCol >= 0) c.getString(mimeCol) else null
+                        if (id != null) {
+                            out.add(id to (mime == DocumentsContract.Document.MIME_TYPE_DIR))
+                        }
+                    } while (c.moveToNext())
+                }
+                out
+            } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        var count = 0
+        for ((childId, isFolder) in children) {
+            val n = if (isFolder) deleteTree(context, tree, childId) else {
+                try {
+                    DocumentsContract.deleteDocument(
+                        context.contentResolver,
+                        DocumentsContract.buildDocumentUriUsingTree(tree, childId)
+                    )
+                    1
+                } catch (e: Exception) {
+                    0
+                }
+            }
+            if (n < 0) return -1
+            count += n
+        }
+        // Now the folder itself.
+        return try {
+            DocumentsContract.deleteDocument(
+                context.contentResolver,
+                DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+            )
+            count + 1
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    /**
      * Create a FOLDER inside the workspace (or inside one of its
      * subfolders).
      *

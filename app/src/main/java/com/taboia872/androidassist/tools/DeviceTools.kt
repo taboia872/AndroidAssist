@@ -50,6 +50,9 @@ object DeviceTools {
                 "list_files" -> listFiles(context, args)
                 "create_folder" -> createFolder(context, args)
                 "delete_file" -> deleteFile(context, args)
+                "delete_folder" -> deleteFolder(context, args)
+                "play_media" -> playMedia(context, args)
+                "list_media" -> listMedia(context, args)
                 "send_message" -> sendMessage(context, args)
                 else -> Result(
                     ok = false,
@@ -323,7 +326,7 @@ object DeviceTools {
                 l.startsWith(w) -> 85
                 // word-boundary match: "spot" matches "Spotify", "map"
                 // matches "Google Maps" — but "ap" does NOT match "Maps".
-                wordStartsWith(l, w) -> 70
+                TextNormalize.wordStartsWith(l, w) -> 70
                 l.contains(w) -> 55
                 p.contains(w) -> 40
                 else -> -1
@@ -376,17 +379,7 @@ object DeviceTools {
      * True when [needle] starts a WORD of [haystack] ("spot" matches
      * "Spotify"; "ap" does NOT match "Maps").
      */
-    private fun wordStartsWith(haystack: String, needle: String): Boolean {
-        if (needle.isBlank()) return false
-        var idx = haystack.indexOf(needle)
-        while (idx >= 0) {
-            val atStart = idx == 0
-            val before = if (atStart) ' ' else haystack[idx - 1]
-            if (atStart || !before.isLetterOrDigit()) return true
-            idx = haystack.indexOf(needle, idx + 1)
-        }
-        return false
-    }
+
 
     // ------------------------------------------------------------- clipboard
 
@@ -770,7 +763,7 @@ object DeviceTools {
         }
     }
 
-    /** Delete a file from the workspace folder. */
+    /** Delete a FILE from the workspace folder. */
     private fun deleteFile(context: Context, args: org.json.JSONObject): Result {
         if (Workspace.folderUri() == null) return workspaceMissing()
         val name = args.optString("filename", "").trim()
@@ -778,11 +771,156 @@ object DeviceTools {
             return Result(false, "\ud83d\udcc1 ?", "The file name is empty.", "files")
         }
         val folder = args.optString("folder", "").trim()
+        // A FOLDER is not a file: point the model to delete_folder
+        // instead of failing with something cryptic.
+        if (Workspace.isFolder(context, name, folder)) {
+            return Result(
+                false, "\ud83d\udcc1 ?",
+                "'$name' is a FOLDER, not a file. Use delete_folder to remove a " +
+                    "folder (and everything inside it).",
+                "files"
+            )
+        }
         val res = Workspace.deleteByName(context, name, folder)
         return if (res.ok) {
             Result(true, "\ud83d\udcc1 $name apagado", "File '$name' deleted.", "files")
         } else {
             Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
+    }
+
+    /** Delete a FOLDER (and everything inside it) from the workspace. */
+    private fun deleteFolder(context: Context, args: org.json.JSONObject): Result {
+        if (Workspace.folderUri() == null) return workspaceMissing()
+        val name = args.optString("name", "").trim()
+            .ifBlank { args.optString("filename", "").trim() }
+        if (name.isBlank()) {
+            return Result(false, "\ud83d\udcc1 ?", "The folder name is empty.", "files")
+        }
+        val folder = args.optString("folder", "").trim()
+        val res = Workspace.deleteFolder(context, name, folder)
+        return if (res.ok) {
+            Result(
+                true, "\ud83d\udcc1 ${res.message} apagado",
+                "Folder '$name' deleted (${res.message}).",
+                "files"
+            )
+        } else {
+            Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
+    }
+
+    // ------------------------------------------------------------- media
+
+    /**
+     * The media tools need the permission to read the audio library of
+     * the device. Without it the model gets a clear instruction instead
+     * of an empty list.
+     */
+    private fun mediaPermissionMissing(): Result =
+        Result(
+            false, "\ud83c\udfb5 sem permissao",
+            "The assistant cannot read the music library of the device because " +
+                "the media permission was not granted. Tell the user to open " +
+                "Settings > Tools > Media permission and allow it. Do NOT say " +
+                "the library is empty.",
+            "media"
+        )
+
+    /** List the audio files of the device (the user's music). */
+    private fun listMedia(context: Context, args: org.json.JSONObject): Result {
+        if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
+        val query = args.optString("query", "").trim()
+        val tracks = MediaLibrary.search(context, query)
+        if (tracks.isEmpty()) {
+            val what = if (query.isEmpty()) "the music library" else "anything matching '$query'"
+            return Result(
+                true, "\ud83c\udfb5 0 faixa(s)",
+                "There is no audio file in $what of this device.",
+                "media"
+            )
+        }
+        val listing = tracks.joinToString("\n") { t ->
+            "- ${t.title} — ${t.artist} (${t.durationText()})"
+        }
+        return Result(
+            true, "\ud83c\udfb5 ${tracks.size} faixa(s)",
+            "Audio files found on the device:\n$listing\n\n" +
+                "Use play_media with one of these titles to play it.",
+            "media"
+        )
+    }
+
+    /**
+     * Play a track.
+     *
+     * "source" decides WHERE: "device" (the user's own music, by title)
+     * or "youtube" (a streaming site, opened on the web).
+     */
+    private fun playMedia(context: Context, args: org.json.JSONObject): Result {
+        val title = args.optString("title", "").trim()
+            .ifBlank { args.optString("query", "").trim() }
+            .ifBlank { args.optString("name", "").trim() }
+        if (title.isBlank()) {
+            return Result(false, "\ud83c\udfb5 ?", "Which track? Provide the title.", "media")
+        }
+        val source = args.optString("source", "device").trim().lowercase(Locale.ROOT)
+        // A YouTube request does not need the media permission.
+        if (source == "youtube" || source == "yt" || source == "web") {
+            val ok = MediaLibrary.playOnYouTube(context, title)
+            return if (ok) {
+                Result(
+                    true, "\ud83c\udfb5 YouTube: $title",
+                    "Opened the YouTube search for '$title' on the device. The user " +
+                        "picks the track there and the app plays it.",
+                    "media"
+                )
+            } else {
+                Result(
+                    false, "\ud83c\udfb5 ?",
+                    "Could not open YouTube (no browser or the YouTube app).",
+                    "media"
+                )
+            }
+        }
+        // The device library.
+        if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
+        val tracks = MediaLibrary.search(context, title, limit = 10)
+        if (tracks.isEmpty()) {
+            return Result(
+                false, "\ud83c\udfb5 ?",
+                "No audio file on the device matches '$title'. Use list_media to " +
+                    "see what is available.",
+                "media"
+            )
+        }
+        // The best match: exact title > title starts with > title contains.
+        val needle = title.lowercase(Locale.ROOT).trim()
+        val best = tracks.minByOrNull { t ->
+            val tt = t.title.lowercase(Locale.ROOT)
+            when {
+                tt == needle -> 0
+                tt.startsWith(needle) -> 1
+                tt.contains(needle) -> 2
+                else -> 3
+            }
+        } ?: tracks.first()
+        val player = args.optString("player", "").trim().ifBlank { null }
+        val ok = MediaLibrary.play(context, best, player)
+        return if (ok) {
+            Result(
+                true, "\ud83c\udfb5 ${best.title}",
+                "Sent '${best.title}' (${best.artist}) to the music player app.",
+                "media"
+            )
+        } else {
+            Result(
+                false, "\ud83c\udfb5 ?",
+                "Could not open a music player for '${best.title}'. " +
+                    "Maybe no player app is installed, or the requested player " +
+                    "'$player' does not exist.",
+                "media"
+            )
         }
     }
 

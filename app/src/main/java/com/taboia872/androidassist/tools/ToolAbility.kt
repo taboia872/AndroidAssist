@@ -27,6 +27,8 @@ object ToolAbility {
     const val FILES = "files"
     /** Send a message to a contact of the agenda (WhatsApp and friends). */
     const val MESSAGING = "messaging"
+    /** Play the music of the device (or open YouTube) in a player app. */
+    const val MEDIA = "media"
 
     /** Ability id -> the tool function names it covers (one or more). */
     val TOOLS: Map<String, List<String>> = mapOf(
@@ -38,8 +40,12 @@ object ToolAbility {
         SHARE to listOf("share_text"),
         LOCATION to listOf("get_location"),
         MAP to listOf("open_map"),
-        FILES to listOf("write_file", "read_file", "list_files", "create_folder", "delete_file"),
-        MESSAGING to listOf("send_message")
+        FILES to listOf(
+            "write_file", "read_file", "list_files", "create_folder",
+            "delete_file", "delete_folder"
+        ),
+        MESSAGING to listOf("send_message"),
+        MEDIA to listOf("play_media", "list_media")
     )
 
     /** The memory tools — their own group, independent from the abilities. */

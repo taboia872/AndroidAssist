@@ -215,11 +215,20 @@ object LlmClient {
         ),
         ToolAbility.FILES to tool(
             "delete_file",
-            "Delete a file from the user's workspace folder. Only use it when the user explicitly asks to delete or remove that file.",
+            "Delete a FILE from the user's workspace folder. Only use it when the user explicitly asks to delete or remove that file.",
             "filename" to "File name with extension, e.g. old-notes.txt",
             required = listOf("filename"),
             extraProps = mapOf(
                 "folder" to ("string" to "Optional subfolder of the workspace to delete from, e.g. Notes. Leave empty for the workspace root.")
+            )
+        ),
+        ToolAbility.FILES to tool(
+            "delete_folder",
+            "Delete a FOLDER from the user's workspace folder, together with everything inside it. Use it when the user asks to remove a directory or a subfolder.",
+            "name" to "Name of the folder to delete, e.g. Notas",
+            required = listOf("name"),
+            extraProps = mapOf(
+                "folder" to ("string" to "Optional subfolder of the workspace that CONTAINS the folder to delete. Leave empty for the workspace root.")
             )
         ),
         ToolAbility.MESSAGING to tool(
@@ -231,6 +240,22 @@ object LlmClient {
                 "message" to ("string" to "The message text to send"),
                 "app" to ("string" to "Optional messaging app to prefer: 'whatsapp', 'telegram', 'sms' — omit to let the user pick")
             )
+        ),
+        ToolAbility.MEDIA to tool(
+            "play_media",
+            "Play a music track. With source='device' (the default) it finds the track among the audio files of the phone and sends it to the user's music player app. With source='youtube' it opens the YouTube search for that title on the device.",
+            "title" to "The title of the track, e.g. 'Bohemian Rhapsody' or 'Roxanne'",
+            required = listOf("title"),
+            extraProps = mapOf(
+                "source" to ("string" to "Where to play it: 'device' for the user's own music files, 'youtube' to open YouTube. Default 'device'."),
+                "player" to ("string" to "Optional name of the player app to use, e.g. 'Spotify'. Omit to let Android pick the default player.")
+            )
+        ),
+        ToolAbility.MEDIA to tool(
+            "list_media",
+            "List the audio files available on the device (the user's music library), with their title, artist and duration. Use it to find out what can be played before calling play_media.",
+            "query" to "Optional filter: a title, artist or album. Leave empty to list the whole library.",
+            required = emptyList()
         )
     )
 
