@@ -434,7 +434,7 @@ object AppSettings {
             fishFavorites = p.getString(K_FISH_FAVORITES, "[]") ?: "[]",
             customEndpoints = p.getString(K_CUSTOM_ENDPOINTS, "[]") ?: "[]",
             workspaceFolderUri = p.getString(K_WORKSPACE_FOLDER, "") ?: "",
-            contactsPermissionGranted = p.getBoolean(K_CONTACTS_PERMISSION, false)
+            contactsPermissionGranted = p.getBoolean(K_CONTACTS_PERMISSION, false),
             mediaPermissionGranted = p.getBoolean(K_MEDIA_PERMISSION, false)
         )
     }
