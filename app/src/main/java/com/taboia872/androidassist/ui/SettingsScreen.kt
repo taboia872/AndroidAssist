@@ -298,28 +298,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             try {
                 val (kind, data) = BackupStore.read(uri, context)
-                when (kind) {
-                    BackupStore.KIND_MEMORIES ->
-                        BackupStore.restoreMemories(context, data as org.json.JSONArray)
-                    BackupStore.KIND_KEYS ->
-                        BackupStore.restoreKeys(data as org.json.JSONObject)
-                    BackupStore.KIND_PERSONAS ->
-                        BackupStore.restorePersonas(data as org.json.JSONObject)
-                    // Legacy backup (system prompt only) — still importable.
-                    BackupStore.KIND_PROMPT ->
-                        BackupStore.restorePrompt(data as org.json.JSONObject)
-                    BackupStore.KIND_CHATS ->
-                        BackupStore.restoreChats(context, data as org.json.JSONArray)
-                    else -> {
-                        android.widget.Toast.makeText(
-                            context, Strings.t(Strings.backupUnknown), android.widget.Toast.LENGTH_LONG
-                        ).show()
-                        return@rememberLauncherForActivityResult
-                    }
-                }
-                android.widget.Toast.makeText(
-                    context, Strings.t(Strings.backupImported), android.widget.Toast.LENGTH_SHORT
-                ).show()
+                restoreBackupData(context, kind, data)
             } catch (e: Exception) {
                 android.widget.Toast.makeText(context, e.message ?: "?", android.widget.Toast.LENGTH_LONG).show()
             }
@@ -1065,10 +1044,70 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                     BackupSection(
                         onExport = { kind, fileName ->
-                            pendingBackupKind = kind
-                            exportLauncher.launch(fileName)
+                            val workspaceReady =
+                                com.taboia872.androidassist.tools.Workspace
+                                    .isReady(context)
+                            if (workspaceReady) {
+                                // The workspace folder is the app's own
+                                // space: the backup goes straight there,
+                                // no file picker needed.
+                                try {
+                                    com.taboia872.androidassist.backup.BackupStore
+                                        .exportToWorkspace(context, kind, fileName)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        Strings.t(Strings.backupSavedTo) + " " +
+                                            com.taboia872.androidassist.backup.BackupStore
+                                                .WORKSPACE_BACKUP_FOLDER,
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        e.message ?: "?",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            } else {
+                                pendingBackupKind = kind
+                                exportLauncher.launch(fileName)
+                            }
                         },
-                        onImport = { importLauncher.launch(arrayOf("application/json")) }
+                        onImport = {
+                            val workspaceReady =
+                                com.taboia872.androidassist.tools.Workspace
+                                    .isReady(context)
+                            val available =
+                                if (workspaceReady)
+                                    com.taboia872.androidassist.backup.BackupStore
+                                        .listWorkspaceBackups(context)
+                                else emptyList()
+                            if (available.isNotEmpty()) {
+                                // Restore the newest backup of the folder.
+                                val name = available.first().first
+                                try {
+                                    val (kind, data) =
+                                        com.taboia872.androidassist.backup.BackupStore
+                                            .readFromWorkspace(context, name)
+                                    restoreBackupData(context, kind, data)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        e.message ?: "?",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            } else {
+                                importLauncher.launch(arrayOf("application/json"))
+                            }
+                        },
+                        destination = if (
+                            com.taboia872.androidassist.tools.Workspace.isReady(context)
+                        ) {
+                            Strings.t(Strings.backupDestination) + " " +
+                                com.taboia872.androidassist.backup.BackupStore
+                                    .WORKSPACE_BACKUP_FOLDER
+                        } else null
                     )
 
                 }
@@ -4050,4 +4089,35 @@ private fun MemoriesDialog(onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Restore a backup of [kind] into the app, showing the result to the user.
+ *
+ * Shared by the SAF import (a file the user picked) and the workspace
+ * import (the backup file read from the app's own folder).
+ */
+private fun restoreBackupData(context: android.content.Context, kind: String, data: Any) {
+    when (kind) {
+        BackupStore.KIND_MEMORIES ->
+            BackupStore.restoreMemories(context, data as org.json.JSONArray)
+        BackupStore.KIND_KEYS ->
+            BackupStore.restoreKeys(data as org.json.JSONObject)
+        BackupStore.KIND_PERSONAS ->
+            BackupStore.restorePersonas(data as org.json.JSONObject)
+        // Legacy backup (system prompt only) — still importable.
+        BackupStore.KIND_PROMPT ->
+            BackupStore.restorePrompt(data as org.json.JSONObject)
+        BackupStore.KIND_CHATS ->
+            BackupStore.restoreChats(context, data as org.json.JSONArray)
+        else -> {
+            android.widget.Toast.makeText(
+                context, Strings.t(Strings.backupUnknown), android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+    }
+    android.widget.Toast.makeText(
+        context, Strings.t(Strings.backupImported), android.widget.Toast.LENGTH_SHORT
+    ).show()
 }

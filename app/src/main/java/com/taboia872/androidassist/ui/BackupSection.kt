@@ -32,9 +32,19 @@ import com.taboia872.androidassist.i18n.Strings
 @Composable
 fun BackupSection(
     onExport: (kind: String, fileName: String) -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    /** Where the backups are saved (null = the user picks the file). */
+    destination: String? = null
 ) {
     SettingsSection(title = Strings.t(Strings.backupSection)) {
+        if (destination != null) {
+            Text(
+                destination,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 2.dp)
+            )
+        }
         listOf(
             BackupStore.KIND_PERSONAS to Strings.t(Strings.backupPersonas),
             BackupStore.KIND_MEMORIES to Strings.t(Strings.backupMemories),

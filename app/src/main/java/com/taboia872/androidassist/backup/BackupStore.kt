@@ -5,6 +5,7 @@ import android.net.Uri
 import com.taboia872.androidassist.memory.MemoryStore
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.storage.ChatStore
+import com.taboia872.androidassist.tools.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -37,6 +38,14 @@ object BackupStore {
     // ------------------------------------------------------------- export
 
     fun export(context: Context, kind: String, target: Uri) {
+        val envelope = buildEnvelope(context, kind)
+        context.contentResolver.openOutputStream(target)?.use { out ->
+            out.write(envelope.toString(2).toByteArray(Charsets.UTF_8))
+        } ?: throw RuntimeException("Cannot open output stream")
+    }
+
+    /** The backup envelope (the same JSON the SAF export writes). */
+    private fun buildEnvelope(context: Context, kind: String): JSONObject {
         val data = when (kind) {
             KIND_MEMORIES -> exportMemories(context)
             KIND_KEYS -> exportKeys()
@@ -44,16 +53,74 @@ object BackupStore {
             KIND_CHATS -> exportChats(context)
             else -> throw IllegalArgumentException("unknown kind $kind")
         }
-        val envelope = JSONObject().apply {
+        return JSONObject().apply {
             put("format", 1)
             put("kind", kind)
             put("app", "AndroidAssist")
             put("exported", System.currentTimeMillis())
             put("data", data)
         }
-        context.contentResolver.openOutputStream(target)?.use { out ->
-            out.write(envelope.toString(2).toByteArray(Charsets.UTF_8))
-        } ?: throw RuntimeException("Cannot open output stream")
+    }
+
+    // ------------------------------------------------- workspace folder
+
+    /**
+     * The folder the app owns inside the workspace root, and the one that
+     * holds the backup files.
+     *
+     * The workspace root is the folder the user pointed at; the app keeps
+     * its own space there ("AndroidAssist") so it never mixes with the
+     * user's files, and the backups live one level down ("backups").
+     */
+    const val WORKSPACE_APP_FOLDER = "AndroidAssist"
+    const val WORKSPACE_BACKUP_FOLDER = "AndroidAssist/backups"
+
+    /** The file name of an export of [kind] stamped with the time. */
+    fun fileNameFor(kind: String, stamp: String): String =
+        "androidassist-backup-$kind-$stamp.json"
+
+    /**
+     * Write a backup directly into the workspace's backup folder.
+     *
+     * Returns the file name on success. Throws when the folder cannot be
+     * reached (no workspace set, or the provider refuses to create it).
+     */
+    fun exportToWorkspace(context: Context, kind: String, fileName: String): String {
+        val envelope = buildEnvelope(context, kind)
+        val dir = Workspace.ensureFolder(context, WORKSPACE_BACKUP_FOLDER)
+            ?: throw RuntimeException("Could not reach the workspace folder.")
+        // writeTextFile replaces a file of the same name by itself.
+        val res = Workspace.writeTextFile(
+            context, fileName, envelope.toString(2), WORKSPACE_BACKUP_FOLDER
+        )
+        if (!res.ok) throw RuntimeException(res.message)
+        return fileName
+    }
+
+    /**
+     * Read a backup file from the workspace's backup folder.
+     *
+     * Returns the same (kind, data) pair as [read].
+     */
+    fun readFromWorkspace(context: Context, fileName: String): Pair<String, Any> {
+        val text = Workspace.readTextFile(context, fileName, WORKSPACE_BACKUP_FOLDER)
+            ?: throw RuntimeException("No backup named '$fileName' in the workspace folder.")
+        val root = JSONObject(text)
+        val kind = root.optString("kind")
+        val data: Any = when (kind) {
+            KIND_CHATS, KIND_MEMORIES -> root.optJSONArray("data") ?: JSONArray()
+            else -> root.optJSONObject("data") ?: JSONObject()
+        }
+        return kind to data
+    }
+
+    /** The backup files in the workspace's backup folder (newest first). */
+    fun listWorkspaceBackups(context: Context): List<Pair<String, Long>> {
+        val entries = Workspace.entriesIn(context, WORKSPACE_BACKUP_FOLDER)
+            ?: return emptyList()
+        return entries.filter { !it.isFolder && it.name.endsWith(".json") }
+            .map { it.name to it.size }
+            .sortedByDescending { it.first }
     }
 
     private fun exportMemories(context: Context): JSONArray {
