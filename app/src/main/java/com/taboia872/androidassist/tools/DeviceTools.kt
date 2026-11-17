@@ -642,13 +642,23 @@ object DeviceTools {
 
     // ------------------------------------------------------------- files
 
-    /** The workspace folder must be chosen, or the file tools refuse to run. */
+    /**
+     * The workspace folder must be chosen, or the file tools refuse to run.
+     *
+     * The wording matters: the model used to answer "the folder is empty"
+     * (an invention) because the refusal was too soft. Now it says the
+     * folder was never selected, and the USER sees it in the tool block
+     * too — not a "?".
+     */
     private fun workspaceMissing(): Result =
         Result(
-            false, "\ud83d\udcc1 ?",
-            "No workspace folder is set. The user must point the app at a folder " +
-                "in Settings > Tools (Workspace folder) before file tools can run. " +
-                "Tell the user to set it.",
+            false, "\ud83d\udcc1 sem pasta",
+            "STOP: there is NO workspace folder. The user has NOT selected a " +
+                "folder yet — this is NOT the same as an empty folder. " +
+                "Do NOT say the folder is empty and do NOT invent any file " +
+                "contents. Tell the user exactly this: the workspace folder " +
+                "has not been set yet, and to choose one in " +
+                "Settings > Tools > Workspace folder.",
             "files"
         )
 
