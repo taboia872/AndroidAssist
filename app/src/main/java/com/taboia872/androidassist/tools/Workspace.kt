@@ -20,6 +20,7 @@ import com.taboia872.androidassist.settings.AppSettings
  */
 object Workspace {
 
+
     /** The tree URI the user pointed at ("" = none chosen). */
     fun folderUri(): Uri? {
         val raw = AppSettings.config.value.workspaceFolderUri
@@ -69,15 +70,26 @@ object Workspace {
         }
     }
 
+    /**
+     * The URI that LISTS the children of the workspace folder.
+     *
+     * CRITICAL: `buildDocumentUriUsingTree` points at the directory ITSELF
+     * (querying it returns a single row — the folder), while
+     * `buildChildDocumentsUriUsingTree` points at the LIST OF ITS CHILDREN.
+     * Listing/looking up files needs the second one; using the first made
+     * list_files/read_file/delete_file never find anything.
+     */
+    private fun childrenUri(tree: android.net.Uri): android.net.Uri =
+        DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree, DocumentsContract.getTreeDocumentId(tree)
+        )
+
     /** Build the URI of a child document by NAME inside the workspace. */
     private fun childUri(context: Context, name: String): Uri? {
         val tree = folderUri() ?: return null
-        val parent = DocumentsContract.buildDocumentUriUsingTree(
-            tree, DocumentsContract.getTreeDocumentId(tree)
-        )
         return try {
             context.contentResolver.query(
-                parent,
+                childrenUri(tree),
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME
@@ -163,6 +175,7 @@ object Workspace {
         }
     }
 
+
     /** The MIME type that matches the file extension (text/plain default). */
     private fun mimeFor(name: String): String {
         val ext = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
@@ -191,12 +204,9 @@ object Workspace {
     /** The files in the workspace folder (name + size in bytes). */
     fun filesIn(context: Context): List<Pair<String, Long>> {
         val tree = folderUri() ?: return emptyList()
-        val parent = DocumentsContract.buildDocumentUriUsingTree(
-            tree, DocumentsContract.getTreeDocumentId(tree)
-        )
         return try {
             context.contentResolver.query(
-                parent,
+                childrenUri(tree),
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                     DocumentsContract.Document.COLUMN_SIZE,
