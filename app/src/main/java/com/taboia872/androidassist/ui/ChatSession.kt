@@ -50,6 +50,21 @@ internal fun decodeUnicodeEscapes(obj: org.json.JSONObject): org.json.JSONObject
     return out
 }
 
+/** Decode the literal \uXXXX sequences in every string of a JSON array. */
+internal fun decodeUnicodeEscapes(arr: org.json.JSONArray): org.json.JSONArray {
+    val out = org.json.JSONArray()
+    for (i in 0 until arr.length()) {
+        when (val v = arr.opt(i)) {
+            is String -> out.put(decodeUnicodeEscapes(v))
+            is org.json.JSONObject -> out.put(decodeUnicodeEscapes(v))
+            is org.json.JSONArray -> out.put(decodeUnicodeEscapes(v))
+            null -> out.put(org.json.JSONObject.NULL)
+            else -> out.put(v)
+        }
+    }
+    return out
+}
+
 /** Decode every \uXXXX sequence in a string (e.g. "\u00e7" -> "ç"). */
 internal fun decodeUnicodeEscapes(text: String): String {
     if (!text.contains("\\u")) return text
