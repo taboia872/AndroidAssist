@@ -471,7 +471,12 @@ object LlmClient {
 
         activeConn = streamConn
         try {
-            BufferedReader(InputStreamReader(streamConn.inputStream)).use { reader ->
+            // Decode with the charset the SERVER declared (falling back to
+            // UTF-8). Using the platform default mangled accented text
+            // whenever a provider answered with a different charset — the
+            // model then wrote the mojibake into the file.
+            val responseCharset = charsetOf(streamConn.contentType)
+            BufferedReader(InputStreamReader(streamConn.inputStream, responseCharset)).use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     val l = line ?: continue
@@ -549,6 +554,31 @@ object LlmClient {
             streamConn.disconnect()
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * The charset of an HTTP response, from its Content-Type.
+     *
+     * Falls back to UTF-8 (the JSON default) when the header is missing or
+     * names a charset the JVM does not know.
+     */
+    private fun charsetOf(contentType: String?): java.nio.charset.Charset {
+        if (!contentType.isNullOrBlank()) {
+            val idx = contentType.indexOf("charset=", ignoreCase = true)
+            if (idx >= 0) {
+                val name = contentType.substring(idx + 8)
+                    .split(';', ' ').first().trim()
+                    .trim('"', '\'', ',')
+                if (name.isNotBlank()) {
+                    try {
+                        return java.nio.charset.Charset.forName(name)
+                    } catch (e: Exception) {
+                        // Unknown charset -> keep UTF-8.
+                    }
+                }
+            }
+        }
+        return java.nio.charset.StandardCharsets.UTF_8
+    }
 
     /**
      * Parse the legacy TEXT tool-call format emitted by some models even on

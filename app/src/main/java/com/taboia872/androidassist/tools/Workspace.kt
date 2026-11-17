@@ -20,6 +20,19 @@ import com.taboia872.androidassist.settings.AppSettings
  */
 object Workspace {
 
+    /**
+     * The exact shape of UTF-8 bytes that were decoded as Latin-1:
+     * a lead byte (C2-DF = 2 bytes, E0-EF = 3 bytes, F0-F4 = 4 bytes)
+     * followed by its continuation bytes (80-BF).
+     *
+     * Only these runs are repaired, so a legitimate emoji (a char above
+     * U+00FF) is never touched.
+     */
+    private val MOJIBAKE_RUN = Regex(
+        "[\\u00c2-\\u00df][\\u0080-\\u00bf]" +
+            "|[\\u00e0-\\u00ef][\\u0080-\\u00bf]{2}" +
+            "|[\\u00f0-\\u00f4][\\u0080-\\u00bf]{3}"
+    )
 
     /** The tree URI the user pointed at ("" = none chosen). */
     fun folderUri(): Uri? {
@@ -166,8 +179,13 @@ object Workspace {
             ) ?: return Result(false, "Could not create '$safeName' in the workspace folder.")
             // Default "w" mode: truncates and is supported by every
             // provider (the "wt" mode is not).
+            // Some providers deliver the text already mangled (the bytes
+            // were decoded as Latin-1 upstream). Repair the classic
+            // "UTF-8 read as Latin-1" pattern before writing, otherwise
+            // the accents end up in the file as garbage.
+            val repaired = repairMojibake(content)
             context.contentResolver.openOutputStream(created)?.use {
-                it.write(content.toByteArray(Charsets.UTF_8))
+                it.write(repaired.toByteArray(Charsets.UTF_8))
             } ?: return Result(false, "Could not write to '$safeName'.")
             Result(true, safeName)
         } catch (e: Exception) {
@@ -175,6 +193,29 @@ object Workspace {
         }
     }
 
+    /**
+     * Repair text that was decoded as Latin-1 but is really UTF-8.
+     *
+     * The signature is the sequence "Ã" followed by a Latin-1 supplement
+     * character (as in "Ã§" for "ç"). When it is present, the whole text
+     * is re-decoded: the UTF-8 bytes are read back as Latin-1 and decoded
+     * as UTF-8.
+     */
+    fun repairMojibake(text: String): String {
+        if (!MOJIBAKE_RUN.containsMatchIn(text)) return text
+        return MOJIBAKE_RUN.replace(text) { m ->
+            try {
+                val decoded = String(
+                    m.value.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8
+                )
+                // Keep the original when the decode produced a replacement
+                // char (it was not really UTF-8).
+                if (decoded.contains('\uFFFD')) m.value else decoded
+            } catch (e: Exception) {
+                m.value
+            }
+        }
+    }
 
     /** The MIME type that matches the file extension (text/plain default). */
     private fun mimeFor(name: String): String {

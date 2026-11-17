@@ -25,6 +25,79 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
+ * Decode the literal \uXXXX sequences that some providers leave inside the
+ * tool arguments, in every string value of the object.
+ *
+ * When a provider sends the arguments as a JSON STRING
+ * (`{"arguments": "{\"content\": \"caf\\u00e7\"}"}`), the inner JSON is
+ * parsed as text and org.json does not decode the escapes — the file would
+ * be written with the literal "caf\u00e7". This walks the object and
+ * decodes them.
+ */
+internal fun decodeUnicodeEscapes(obj: org.json.JSONObject): org.json.JSONObject {
+    val out = org.json.JSONObject()
+    val keys = obj.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        when (val v = obj.opt(key)) {
+            is String -> out.put(key, decodeUnicodeEscapes(v))
+            is org.json.JSONObject -> out.put(key, decodeUnicodeEscapes(v))
+            is org.json.JSONArray -> out.put(key, decodeUnicodeEscapes(v))
+            null -> out.put(key, org.json.JSONObject.NULL)
+            else -> out.put(key, v)
+        }
+    }
+    return out
+}
+
+/** Decode every \uXXXX sequence in a string (e.g. "\u00e7" -> "ç"). */
+internal fun decodeUnicodeEscapes(text: String): String {
+    if (!text.contains("\\u")) return text
+    val sb = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        if (c == '\\' && i + 5 < text.length && text[i + 1] == 'u') {
+            val code = text.substring(i + 2, i + 6).toIntOrNull(16)
+            if (code != null && code in 0..0xFFFF) {
+                if (code in 0xD800..0xDBFF) {
+                    // A high surrogate: the pair with the low surrogate is
+                    // the real character (e.g. an emoji).
+                    val low = if (i + 11 < text.length &&
+                        text[i + 6] == '\\' && text[i + 7] == 'u'
+                    ) {
+                        text.substring(i + 8, i + 12).toIntOrNull(16)
+                    } else null
+                    if (low != null && low in 0xDC00..0xDFFF) {
+                        val point = 0x10000 + ((code - 0xD800) shl 10) + (low - 0xDC00)
+                        sb.appendCodePoint(point)
+                        i += 12
+                        continue
+                    }
+                    // A lone high surrogate is not a valid character:
+                    // leave the text as it is.
+                    sb.append(c)
+                    i++
+                    continue
+                }
+                if (code in 0xDC00..0xDFFF) {
+                    // A lone low surrogate: also invalid on its own.
+                    sb.append(c)
+                    i++
+                    continue
+                }
+                sb.append(code.toChar())
+                i += 6
+                continue
+            }
+        }
+        sb.append(c)
+        i++
+    }
+    return sb.toString()
+}
+
+/**
  * One renderable block in the chat TIMELINE. Every event of an assistant
  * turn is its own block, stacked one below the other: a thinking segment
  * is a "reasoning" block, a web search is a "tool" block (with the raw
@@ -369,7 +442,11 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         val c = ctx
                         if (c != null) {
                             val argsObj = try {
-                                org.json.JSONObject(toolArgs)
+                                // The provider may deliver "arguments" as a
+                                // JSON STRING, in which case org.json leaves
+                                // the inner \uXXXX escapes literal ("caf\u00e7"
+                                // instead of "café"). Decode them here.
+                                decodeUnicodeEscapes(org.json.JSONObject(toolArgs))
                             } catch (e: Exception) { org.json.JSONObject() }
                             when (toolName) {
                                 "save_memory" -> {
