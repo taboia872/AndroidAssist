@@ -4,7 +4,7 @@ Estratégia e backlog de funcionalidades. **Este arquivo é a fonte da verdade d
 que está planejado** — se um chat encher, retome lendo este arquivo + a skill
 `androidassist-app` (regras, armadilhas, fluxo de build).
 
-Última atualização: 2026-11-17 (subpastas + pasta de backup).
+Última atualização: 2026-11-17 (play_media + apagar pasta + subpastas + pasta de backup).
 
 ---
 
@@ -33,7 +33,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 | Agendamento de tarefa (executor em background) | ❌ não existe (manifest sem nenhum `receiver`, sem `BOOT_COMPLETED`, sem `FOREGROUND_SERVICE`) |
 | Página HTML gerada + link no chat | ❌ não existe (nenhum `WebView` no app) |
 | Modelo por tarefa / pipeline imagem→principal | ❌ não existe (`AppConfig` tem UM `model`) |
-| Tocar mídia (música/arquivo/YouTube) | ❌ não existe (existe só `open_app` genérico) |
+| Tocar mídia (música/arquivo/YouTube) | ✅ feito (`c63795c`) — MediaStore + intent pro player; YouTube abre a busca |
 | Enviar mensagem a contato específico | ⚠️ parcial — `share_text` abre o share sheet genérico |
 | Leitura de contatos | ❌ não existe (`ContactsContract` ausente) |
 
@@ -45,7 +45,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 |---|---|---|---|---|
 | 1 | **(a) Pasta apontada + tools de arquivo** | médio | alto | ✅ **FEITO** (commit `493e508`) |
 | 2 | **(e) Contato + WhatsApp** | médio | alto | ✅ **FEITO** (commit `493e508`) |
-| 3 | (d) `play_media` — tocar música | baixo | alto | pendente |
+| 3 | (d) `play_media` — tocar música | baixo | alto | ✅ **FEITO** (commit `c63795c`) |
 | 4 | (c) `modelVision` — pipeline de imagem | médio | médio | pendente |
 | 5 | (b) Agendamento de tarefas | alto | alto | pendente (por último) |
 
@@ -110,11 +110,29 @@ contato à mão. Duas camadas possíveis:
 - **com permissão**: `SmsManager` para SMS direto + receiver de resposta. Mais
   invasivo; único jeito de "ler e responder".
 
-### (d) play_media
+### (d) play_media — ✅ FEITO (`c63795c`)
 
-`Intent.ACTION_VIEW` já funciona. `open_app` abre o Spotify; falta:
-`ACTION_VIEW` com `content://` + `type=audio/*` para arquivo, e Intent de busca
-no YouTube. Com a pasta de (a), "meus arquivos" fica natural.
+Duas tools: `play_media` (toca) e `list_media` (lista a biblioteca).
+
+O catálogo é o **MediaStore** (`MediaStore.Audio.Media`), que é o índice do
+próprio sistema — a música do usuário já está lá, em /Music, /Downloads, no
+cartão SD. **Não se copia nada para a pasta do assistente**: a pasta é do
+assistente, a música é do usuário. A leitura é só de consulta.
+
+Permissão: `READ_MEDIA_AUDIO` (Android 13+) ou `READ_EXTERNAL_STORAGE`
+(Android 12 e anteriores), no mesmo padrão já usado para os contatos
+(Configurações › Ferramentas › Permissão de mídia).
+
+O playback é `Intent.ACTION_VIEW` com o `content://` da faixa, mime
+`audio/*` e `FLAG_GRANT_READ_URI_PERMISSION` (sem a flag o player não
+consegue ler o arquivo). O parâmetro `player` aceita o **nome** do app
+("Spotify") e é resolvido para o package name antes do intent.
+
+Para YouTube não existe API pública que toque uma faixa a partir de outro
+app — o honesto é abrir a busca no YouTube no dispositivo, onde o usuário
+escolhe a faixa. O parâmetro `source` decide entre "device" e "youtube".
+
+Habilidade `MEDIA` com switch próprio.
 
 ### (c) modelVision
 
