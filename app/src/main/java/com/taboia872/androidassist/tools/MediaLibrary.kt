@@ -128,18 +128,38 @@ object MediaLibrary {
             limit
         }
         for (volume in volumeNames) {
-            val collection = if (android.os.Build.VERSION.SDK_INT >= 29) {
-                MediaStore.Audio.Media.getContentUri(volume)
-            } else {
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            searchIn(
+                context, collectionOf(volume), volume, projection, needle,
+                out, perVolume, seen
+            )
+        }
+        // TOP UP: the volumes together may not fill the list (the SD card
+        // had fewer tracks than its share of the quota). Fill the rest
+        // from whichever volume still has tracks — the tracks already
+        // collected are skipped by the `seen` set.
+        if (needle.isEmpty() && out.size < limit) {
+            var remaining = limit - out.size
+            for (volume in volumeNames) {
+                if (remaining <= 0) break
+                remaining -= searchIn(
+                    context, collectionOf(volume), volume, projection, needle,
+                    out, remaining, seen
+                )
             }
-            searchIn(context, collection, volume, projection, needle, out, perVolume, seen)
         }
         // The list is coherent across the volumes: the most recent
         // first, wherever the track lives.
         out.sortByDescending { it.dateAdded }
         return out.take(limit)
     }
+
+    /** The audio collection of ONE volume. */
+    private fun collectionOf(volume: String): Uri =
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Audio.Media.getContentUri(volume)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        }
 
     /**
      * The external volumes of the device: the primary storage AND the SD
@@ -168,7 +188,15 @@ object MediaLibrary {
     /** The external volumes of the device (for the diagnostic message). */
     fun volumeNames(context: Context): List<String> = volumes(context)
 
-    /** Query ONE volume and collect the matching tracks. */
+    /**
+     * Query ONE volume and collect the matching tracks.
+     *
+     * Returns how many tracks THIS volume contributed. The quota is
+     * counted HERE (per volume), never against the global accumulator:
+     * comparing the accumulated size with the per-volume quota stopped
+     * the scan of the second volume after ONE track (the list came back
+     * with 11 tracks instead of 20 and the SD card was never read).
+     */
     private fun searchIn(
         context: Context,
         collection: Uri,
@@ -178,7 +206,8 @@ object MediaLibrary {
         out: MutableList<Track>,
         limit: Int,
         seen: MutableSet<String>
-    ) {
+    ): Int {
+        var added = 0
         try {
             context.contentResolver.query(
                 collection,
@@ -226,7 +255,8 @@ object MediaLibrary {
                                 volumeName = rowVolume
                             )
                         )
-                        if (out.size >= limit) return
+                        added++
+                        if (added >= limit) return added
                     } while (c.moveToNext())
                 }
             }
@@ -234,6 +264,7 @@ object MediaLibrary {
             // A volume that cannot be read (ejected SD card) must not
             // kill the whole search.
         }
+        return added
     }
 
     /**
