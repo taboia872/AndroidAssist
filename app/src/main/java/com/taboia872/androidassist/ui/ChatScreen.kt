@@ -524,126 +524,127 @@ fun ChatScreen(
                 item { Spacer(Modifier.height(1.dp)) }
             }
 
+            // The index of the SENTINEL (the empty item at the end of the
+            // list): the messages plus the extra items that are in the
+            // list (the listening bubble, the thinking bubble, the voice
+            // error). It is computed from the DATA (the layout count can
+            // be stale while the list re-lays out) and read LIVE (inside
+            // the snapshotFlow): a value captured OUTSIDE the flow is
+            // frozen for the whole life of the effect.
+            fun liveSentinel(): Int {
+                val extras = (if (listening) 1 else 0) +
+                    (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
+                    (if (voiceError != null) 1 else 0)
+                return session.messages.size + extras
+            }
+
             // ---- auto-scroll ------------------------------------------------
             //
-            // ONE controller, rebuilt from scratch. The rules:
+            // ONE controller. The rules:
             //
             //  1) FOLLOW the bottom while the user is there. The content
             //     is observed with snapshotFlow (the LAYOUT), not with
             //     keys that change — the old code fired on every new
             //     block of the timeline and SNAPPED to a position
             //     (scrollToItem is instant), which is the "jump".
-            //  2) The follow is an ANIMATION (animateScrollToItem), so
-            //     the view glides instead of teleporting.
-            //  3) The user's drag turns the follow off; scrolling back
-            //     to the bottom turns it on again.
-            //  4) The anchor is the SENTINEL (an empty item at the end
+            //  2) The LIVE values are read INSIDE the snapshotFlow. A
+            //     value captured OUTSIDE the flow is FROZEN for the whole
+            //     life of the effect (a LaunchedEffect keeps the closure
+            //     of the composition where it started): the old code
+            //     captured the sentinel index when the chat was EMPTY,
+            //     so the follow aimed at index 0 and the chat kept
+            //     jumping to the TOP.
+            //  3) The user's drag turns the follow off IMMEDIATELY (the
+            //     drag state is part of the observed flow, so the turn-off
+            //     does not wait for a layout change); scrolling back to
+            //     the bottom turns it on again.
+            //  4) The anchor is the SENTINEL (the empty item at the end
             //     of the list): scrolling to it is the exact bottom,
             //     whatever the height of the last bubble. Scrolling to
             //     the last MESSAGE puts its TOP at the top of the
             //     screen — the opposite of following a growing bubble.
-            //
-            // The index of the sentinel, computed from the DATA (the
-            // layout count can be stale while the list re-lays out).
-            val sentinelIndex = session.messages.size +
-                (if (listening) 1 else 0) +
-                (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
-                (if (voiceError != null) 1 else 0)
-
-            // Is the user dragging WITH A FINGER right now?
-            // collectIsDraggedAsState() tells a finger drag from the
-            // app's own scroll — isScrollInProgress fires for both.
+            //  5) The follow is INSTANT (scrollToItem): an animation
+            //     restarted on every chunk of text fights its own spring
+            //     and makes the view jump up and down.
+            //  6) A VIEWPORT change (the input field growing while the
+            //     user types) is not content growth: it must not scroll.
             val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
 
-            // THE CONTROLLER: one long-lived effect that watches the
-            // content. Every change of the layout (a new block, a new
-            // chunk of text, a new message) is an emission.
-            //
-            // The follow only happens when the user was AT the bottom:
-            // someone reading the history is not dragged away by the
-            // assistant's new lines.
             LaunchedEffect(listState) {
                 var stickToBottom = true
                 var previousCount = 0
                 var previousLastSize = 0
+                var previousViewport = 0
                 snapshotFlow {
-                    // The layout of the LAST item: its index + its
-                    // height. Both change when the content grows.
-                    //
-                    // The sentinel index is observed HERE, not captured:
-                    // it changes as the messages grow, and a captured
-                    // value made the controller scroll to a STALE index
-                    // (the jump to the wrong place).
                     val info = listState.layoutInfo
                     val last = info.visibleItemsInfo.lastOrNull()
-                    Triple(info.totalItemsCount, last?.index ?: -1, last?.size ?: 0) to sentinelIndex
-                }.collect { (layout, liveSentinel) ->
-                    val (count, lastIndex, lastSize) = layout
+                    listOf(
+                        info.totalItemsCount,
+                        last?.index ?: -1,
+                        last?.size ?: 0,
+                        info.viewportSize.height,
+                        info.viewportEndOffset,
+                        (last?.offset ?: 0) + (last?.size ?: 0),
+                        if (userIsDragging) 1 else 0,
+                        liveSentinel()
+                    )
+                }.collect { s ->
+                    val count = s[0]
+                    val lastIndex = s[1]
+                    val lastSize = s[2]
+                    val viewport = s[3]
+                    val viewportEnd = s[4]
+                    val lastBottom = s[5]
+                    val dragging = s[6] == 1
+                    val sentinel = s[7]
+                    val newItem = count != previousCount
+                    val grew = newItem || lastSize != previousLastSize
+                    val viewportChanged = viewport != previousViewport
+                    previousCount = count
+                    previousLastSize = lastSize
+                    previousViewport = viewport
                     if (count == 0) return@collect
-                    // The user scrolled away: stop following until they
-                    // come back to the bottom.
-                    if (userIsDragging) {
+                    // The user is dragging: the follow is OFF and the app
+                    // does not scroll (it would fight the finger).
+                    if (dragging) {
                         stickToBottom = false
                         return@collect
                     }
-                    val visible = lastIndex >= liveSentinel - 1
-                    if (visible) {
-                        // Back at the bottom (or the content is short):
-                        // follow again.
+                    // Back at the bottom? The follow is armed again.
+                    if (lastIndex >= count - 1 || lastBottom >= viewportEnd - 2) {
                         stickToBottom = true
                     }
-                    val grew = count != previousCount || lastSize != previousLastSize
-                    previousCount = count
-                    previousLastSize = lastSize
                     if (!stickToBottom) return@collect
                     // Nothing changed: no scroll at all. This is what
                     // stops the jumping — the old code scrolled on
                     // EVERY new block, even when the view was already
                     // at the bottom.
                     if (!grew) return@collect
-                    // The layout knows the item now, so the scroll works.
-                    // animateScrollToItem has NO animationSpec parameter
-                    // in this Compose version — it uses the default
-                    // spring, which is the smooth follow we want.
-                    listState.animateScrollToItem(
-                        index = liveSentinel.coerceAtMost(count - 1)
-                    )
+                    // The viewport changed (the input grew while the user
+                    // types): that is not content growth — unless a new
+                    // item arrived, which must always be shown.
+                    if (viewportChanged && !newItem) return@collect
+                    // The sentinel is the LAST item: scrolling to it is
+                    // the exact bottom.
+                    listState.scrollToItem(sentinel.coerceAtMost(count - 1))
                 }
             }
 
             // OPENING A CHAT: align with the last answer, instantly.
             //
-            // The effect above FOLLOWS the growth, but a chat that is
-            // LOADED from the history does not grow — it appears whole.
-            // So this effect aligns it.
-            //
-            // The key is session.chatId: it changes on loadFrom() and on
-            // reset() (a new chat). resumeChatId does NOT work — it is
-            // consumed (set to null) after the load, so the effect would
-            // not fire again for the next chat.
-            //
-            // The layout is observed so the scroll runs AFTER the items
-            // are measured: before that, scrollToItem has nothing to
-            // scroll to and does nothing — which is why opening an old
-            // chat did not align with the last answer.
+            // The chat content arrives AFTER the chatId changes (loadFrom
+            // sets the id first, the messages after) — so waiting on the
+            // layout alone scrolled to the TOP of the old list. Wait for
+            // the MESSAGES to be in the list AND for the items to be
+            // MEASURED: a scrollToItem before the first measurement does
+            // nothing at all.
             LaunchedEffect(session.chatId) {
-                // Wait for the layout to hold the EXPECTED items — not
-                // just "> 0": loadFrom() sets chatId BEFORE the
-                // messages, so a "> 0" wait would scroll to the content
-                // of the PREVIOUS chat.
-                // The expected count is observed LIVE: sentinelIndex
-                // changes as the messages load, and a captured value
-                // would wait for the wrong count.
                 snapshotFlow {
-                    listState.layoutInfo.totalItemsCount to sentinelIndex
-                }.first { (count, sentinel) ->
-                    count >= sentinel + 1
-                }
-                listState.scrollToItem(
-                    sentinelIndex.coerceAtMost(
-                        (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-                    )
-                )
+                    val info = listState.layoutInfo
+                    info.totalItemsCount == liveSentinel() + 1 &&
+                        info.visibleItemsInfo.isNotEmpty()
+                }.first { it }
+                listState.scrollToItem(liveSentinel())
             }
 
             viewerImage?.let { img ->

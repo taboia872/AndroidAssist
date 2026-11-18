@@ -67,6 +67,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -595,6 +596,13 @@ private fun FullscreenAssistant(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var viewerImage by remember { mutableStateOf<String?>(null) }
+    // The values the scroll controller needs, read LIVE. They arrive as
+    // plain parameters and a parameter captured by a LaunchedEffect is
+    // FROZEN at the moment the effect started — the controller would
+    // keep the sentinel index of an empty chat forever.
+    val liveListening by rememberUpdatedState(listening)
+    val liveTranscript by rememberUpdatedState(transcript)
+    val liveVoiceError by rememberUpdatedState(voiceError)
 
     Scaffold(
         topBar = {
@@ -753,54 +761,85 @@ private fun FullscreenAssistant(
                 item { Spacer(Modifier.height(1.dp)) }
             }
 
-            // The index of the sentinel, computed from the DATA (the
-            // layout count can be stale while the list re-lays out).
-            val sentinelIndex = (if (listening && transcript.isEmpty()) 1 else 0) +
-                (if (transcript.isNotEmpty()) 1 else 0) +
-                session.messages.size +
-                (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
-                (if (voiceError != null) 1 else 0)
+            // The index of the SENTINEL (the empty item at the end of the
+            // list): the messages plus the extra items that are in the
+            // list (the listening bubble, the transcript bubble, the
+            // thinking bubble, the voice error). It is computed from the
+            // DATA (the layout count can be stale while the list re-lays
+            // out) and read LIVE (inside the snapshotFlow).
+            fun liveSentinel(): Int {
+                val extras = (if (liveListening && liveTranscript.isEmpty()) 1 else 0) +
+                    (if (liveTranscript.isNotEmpty()) 1 else 0) +
+                    (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
+                    (if (liveVoiceError != null) 1 else 0)
+                return session.messages.size + extras
+            }
 
-            // The same controller as the main chat: follow the bottom
-            // with an ANIMATION, and only when the content actually
-            // grew (the old code snapped on every new block).
+            // The same controller as the main chat: follow the bottom,
+            // but only when the content actually grew, and never while
+            // the user is dragging.
             val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
             LaunchedEffect(listState) {
                 var stickToBottom = true
                 var previousCount = 0
                 var previousLastSize = 0
+                var previousViewport = 0
                 snapshotFlow {
                     val info = listState.layoutInfo
                     val last = info.visibleItemsInfo.lastOrNull()
-                    Triple(info.totalItemsCount, last?.index ?: -1, last?.size ?: 0) to sentinelIndex
-                }.collect { (layout, liveSentinel) ->
-                    val (count, lastIndex, lastSize) = layout
+                    listOf(
+                        info.totalItemsCount,
+                        last?.index ?: -1,
+                        last?.size ?: 0,
+                        info.viewportSize.height,
+                        info.viewportEndOffset,
+                        (last?.offset ?: 0) + (last?.size ?: 0),
+                        if (userIsDragging) 1 else 0,
+                        liveSentinel()
+                    )
+                }.collect { s ->
+                    val count = s[0]
+                    val lastIndex = s[1]
+                    val lastSize = s[2]
+                    val viewport = s[3]
+                    val viewportEnd = s[4]
+                    val lastBottom = s[5]
+                    val dragging = s[6] == 1
+                    val sentinel = s[7]
+                    val newItem = count != previousCount
+                    val grew = newItem || lastSize != previousLastSize
+                    val viewportChanged = viewport != previousViewport
+                    previousCount = count
+                    previousLastSize = lastSize
+                    previousViewport = viewport
                     if (count == 0) return@collect
-                    if (userIsDragging) {
+                    if (dragging) {
                         stickToBottom = false
                         return@collect
                     }
-                    val visible = lastIndex >= liveSentinel - 1
-                    if (visible) stickToBottom = true
-                    val grew = count != previousCount || lastSize != previousLastSize
-                    previousCount = count
-                    previousLastSize = lastSize
-                    if (!stickToBottom || !grew) return@collect
-                    listState.animateScrollToItem(
-                        index = liveSentinel.coerceAtMost(count - 1)
-                    )
+                    if (lastIndex >= count - 1 || lastBottom >= viewportEnd - 2) {
+                        stickToBottom = true
+                    }
+                    if (!stickToBottom) return@collect
+                    if (!grew) return@collect
+                    // A viewport change (the input growing while the
+                    // user types) is not content growth — unless a new
+                    // item arrived, which must always be shown.
+                    if (viewportChanged && !newItem) return@collect
+                    listState.scrollToItem(sentinel.coerceAtMost(count - 1))
                 }
             }
             // Opening a chat: align with the last answer, instantly.
+            // Wait for the MESSAGES to be in the list AND for the items to
+            // be MEASURED: a scrollToItem before the first measurement
+            // does nothing at all.
             LaunchedEffect(session.chatId) {
                 snapshotFlow {
-                    listState.layoutInfo.totalItemsCount to sentinelIndex
-                }.first { (count, sentinel) -> count >= sentinel + 1 }
-                listState.scrollToItem(
-                    sentinelIndex.coerceAtMost(
-                        (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-                    )
-                )
+                    val info = listState.layoutInfo
+                    info.totalItemsCount == liveSentinel() + 1 &&
+                        info.visibleItemsInfo.isNotEmpty()
+                }.first { it }
+                listState.scrollToItem(liveSentinel())
             }
 
             viewerImage?.let { img ->
