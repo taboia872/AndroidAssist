@@ -29,12 +29,38 @@ object MediaLibrary {
         val artist: String,
         val album: String,
         val durationMs: Long,
-        val mimeType: String
+        val mimeType: String,
+        /**
+         * The storage volume the track lives on ("primary", the SD
+         * card's uuid, ...).
+         *
+         * It MATTERS for playback: the URI of a track on the SD card is
+         * built from ITS volume — a URI built from the primary volume
+         * opens nothing on the player.
+         */
+        val volumeName: String = ""
     ) {
-        /** The content:// URI of the track (readable by a player app). */
-        fun uri(): Uri = ContentUris.withAppendedId(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
-        )
+        /**
+         * The content:// URI of the track (readable by a player app).
+         *
+         * Built from the track's OWN volume: `content://media/<volume>/
+         * audio/media/<id>`. Using the merged "external" volume here is
+         * what made the SD card tracks fail to play.
+         */
+        fun uri(): Uri {
+            // The volume name is only usable from API 29 (Q) — and it must
+            // be a REAL volume name ("primary", the SD card's uuid), not
+            // the synthetic "external_primary", or the URI points at a
+            // volume that does not exist and the player opens nothing.
+            val collection = if (android.os.Build.VERSION.SDK_INT >= 29 &&
+                volumeName.isNotBlank()
+            ) {
+                MediaStore.Audio.Media.getContentUri(volumeName)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+            return ContentUris.withAppendedId(collection, id)
+        }
 
         /** "3:42" */
         fun durationText(): String {
@@ -76,12 +102,63 @@ object MediaLibrary {
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.MIME_TYPE
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.VOLUME_NAME
         )
         val needle = TextNormalize.normalize(query)
+        // EVERY external volume: the primary storage AND the SD card.
+        // A single query on the merged "external" volume does not always
+        // see the SD card, and the SD card is where the music lives.
+        // The same track can be seen twice (the merged volume and the
+        // real one): keep one copy of each.
+        val seen = mutableSetOf<String>()
+        for (volume in volumes(context)) {
+            val collection = if (android.os.Build.VERSION.SDK_INT >= 29) {
+                MediaStore.Audio.Media.getContentUri(volume)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+            searchIn(context, collection, volume, projection, needle, out, limit, seen)
+            if (out.size >= limit) break
+        }
+        return out
+    }
+
+    /**
+     * The external volumes of the device: the primary storage AND the SD
+     * cards.
+     *
+     * The names come from getExternalVolumeNames() ("primary", the SD
+     * card's uuid...). The fallback is the MERGED "external" volume,
+     * which always exists — the synthetic "external_primary" would be a
+     * volume that does not exist and the query would return nothing.
+     */
+    private fun volumes(context: Context): List<String> {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return listOf(MediaStore.VOLUME_EXTERNAL)
+        }
+        return try {
+            val names = MediaStore.getExternalVolumeNames(context).toList()
+            if (names.isEmpty()) listOf(MediaStore.VOLUME_EXTERNAL) else names
+        } catch (e: Exception) {
+            listOf(MediaStore.VOLUME_EXTERNAL)
+        }
+    }
+
+    /** Query ONE volume and collect the matching tracks. */
+    private fun searchIn(
+        context: Context,
+        collection: Uri,
+        volume: String,
+        projection: Array<String>,
+        needle: String,
+        out: MutableList<Track>,
+        limit: Int,
+        seen: MutableSet<String>
+    ) {
         try {
             context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                collection,
                 projection,
                 null, null,
                 "${MediaStore.Audio.Media.DATE_ADDED} DESC"
@@ -92,6 +169,7 @@ object MediaLibrary {
                 val albumCol = c.getColumnIndex(MediaStore.Audio.Media.ALBUM)
                 val durCol = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
                 val mimeCol = c.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
+                val volCol = c.getColumnIndex(MediaStore.Audio.Media.VOLUME_NAME)
                 // Start at the FIRST row: a bare moveToNext() skips it.
                 if (c.moveToFirst()) {
                     do {
@@ -106,6 +184,10 @@ object MediaLibrary {
                         }
                         val id = if (idCol >= 0) c.getLong(idCol) else -1L
                         if (id < 0) continue
+                        val rowVolume = if (volCol >= 0) {
+                            c.getString(volCol) ?: volume
+                        } else volume
+                        if (!seen.add("$rowVolume/$id")) continue
                         out.add(
                             Track(
                                 id = id,
@@ -115,17 +197,18 @@ object MediaLibrary {
                                 durationMs = if (durCol >= 0) c.getLong(durCol) else 0L,
                                 mimeType = if (mimeCol >= 0) {
                                     c.getString(mimeCol) ?: "audio/*"
-                                } else "audio/*"
+                                } else "audio/*",
+                                volumeName = rowVolume
                             )
                         )
-                        if (out.size >= limit) break
+                        if (out.size >= limit) return
                     } while (c.moveToNext())
                 }
             }
         } catch (e: Exception) {
-            return emptyList()
+            // A volume that cannot be read (ejected SD card) must not
+            // kill the whole search.
         }
-        return out
     }
 
     /**
