@@ -887,10 +887,21 @@ object DeviceTools {
         if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
         val tracks = MediaLibrary.search(context, title, limit = 10)
         if (tracks.isEmpty()) {
+            // Hand the model the closest tracks: without them it just
+            // said "there is no version of the song in your library" and
+            // offered YouTube, without knowing what IS there.
+            val closest = MediaLibrary.search(context, "", limit = 12)
+            val names = closest.joinToString(", ") { "'${it.title}' (${it.artist})" }
             return Result(
                 false, "\ud83c\udfb5 ?",
-                "No audio file on the device matches '$title'. Use list_media to " +
-                    "see what is available.",
+                "No audio file on the device matches '$title'. " +
+                    (if (names.isNotEmpty())
+                        "These tracks ARE available: $names. If one of them is the " +
+                            "one the user meant, play THAT exact title."
+                    else
+                        "The device library appears to be empty.") +
+                    " Do NOT call play_media again in this turn — answer the user " +
+                    "with what is available.",
                 "media"
             )
         }

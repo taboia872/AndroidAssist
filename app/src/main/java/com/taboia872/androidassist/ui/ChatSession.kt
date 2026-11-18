@@ -372,6 +372,13 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             val usedToolCalls = mutableSetOf<String>()
             // The web search runs at most ONCE per turn.
             var webSearchUsedThisTurn = false
+            // play_media ALSO runs at most ONCE per turn: it OPENS a
+            // player, so calling it again with a different title does
+            // not make sense — the first call either opened the player or
+            // it did not. The model was calling it three times in a row
+            // ("?" -> "a text with two tracks" -> the right name) and
+            // then claiming the music was not in the library.
+            var playMediaUsedThisTurn = false
             while (callId != null && toolRound < maxToolCalls) {
                 toolRound++
                 // EVERY call the model made in THIS round. A model can ask
@@ -404,6 +411,18 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         toolResult = "The tool '$toolName' is DISABLED by the user " +
                             "(Settings > Tools). Do NOT use it and do NOT pretend it " +
                             "worked — tell the user it is turned off."
+                        addBlock("tool", toolHeader, "")
+                    } else if (toolName == "play_media" && playMediaUsedThisTurn) {
+                        // The player was already opened (or already
+                        // refused) in this turn. Do not open it again —
+                        // tell the model to answer with what it has.
+                        toolHeader = "\ud83d\udd12 play_media (repetida)"
+                        toolResult = "play_media already ran in this turn, so the " +
+                            "player was already opened (or already failed). Do NOT " +
+                            "call it again with a different title — answer the user " +
+                            "now with the result you already have. If the track was " +
+                            "not found, say which tracks ARE available (use " +
+                            "list_media) instead of trying again."
                         addBlock("tool", toolHeader, "")
                     } else if (toolName == "web_search" && webSearchUsedThisTurn) {
                         // The search already ran in this turn (the model asked
@@ -517,6 +536,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                         // DEVICE TOOL: executed locally via Android Intents (alarm,
                         // timer, calendar, open app, clipboard, share).
                         val c = ctx
+                        // play_media opens a player: it makes sense at most
+                        // ONCE per turn, whatever the title.
+                        if (toolName == "play_media") playMediaUsedThisTurn = true
                         val res = if (c != null) {
                             // IO dispatcher: get_location waits for a GPS/network
                             // fix (seconds) and reverse-geocodes over HTTP —
