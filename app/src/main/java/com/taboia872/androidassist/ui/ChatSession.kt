@@ -177,7 +177,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
     var status by mutableStateOf("")
         private set
 
-    private var chatId by mutableStateOf(UUID.randomUUID().toString())
+    /**
+     * The id of the current conversation.
+     *
+     * PUBLIC because the screens use it as the key of the "align with
+     * the bottom" effect: it changes both when a chat is loaded from the
+     * history and when a new chat starts. (resumeChatId does not work —
+     * it is consumed after the load.)
+     */
+    var chatId by mutableStateOf(UUID.randomUUID().toString())
 
     /** The in-flight turn job — stop() cancels it (user STOP button). */
     private var turnJob: Job? = null

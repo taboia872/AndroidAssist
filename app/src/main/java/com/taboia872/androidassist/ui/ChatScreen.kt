@@ -602,9 +602,11 @@ fun ChatScreen(
                     // at the bottom.
                     if (!grew) return@collect
                     // The layout knows the item now, so the scroll works.
+                    // animateScrollToItem has NO animationSpec parameter
+                    // in this Compose version — it uses the default
+                    // spring, which is the smooth follow we want.
                     listState.animateScrollToItem(
-                        index = liveSentinel.coerceAtMost(count - 1),
-                        animationSpec = androidx.compose.animation.core.tween(180)
+                        index = liveSentinel.coerceAtMost(count - 1)
                     )
                 }
             }
