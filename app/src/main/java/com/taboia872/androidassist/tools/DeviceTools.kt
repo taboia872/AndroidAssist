@@ -832,11 +832,19 @@ object DeviceTools {
         if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
         val query = args.optString("query", "").trim()
         val tracks = MediaLibrary.search(context, query)
+        // The DIAGNOSTIC: which volumes were searched. Without it a
+        // missing SD card is indistinguishable from an empty library.
+        val volumes = MediaLibrary.volumeNames(context)
+        val volumeInfo = if (volumes.isEmpty()) "none" else volumes.joinToString(", ")
         if (tracks.isEmpty()) {
             val what = if (query.isEmpty()) "the music library" else "anything matching '$query'"
             return Result(
                 true, "\ud83c\udfb5 0 faixa(s)",
-                "There is no audio file in $what of this device.",
+                "There is no audio file in $what of this device. " +
+                    "Storage volumes searched: $volumeInfo. " +
+                    "If the music is on a memory card, the system may not have " +
+                    "indexed it yet — tell the user to open any music player " +
+                    "once so the system scans the card, then try again.",
                 "media"
             )
         }
@@ -846,6 +854,7 @@ object DeviceTools {
         return Result(
             true, "\ud83c\udfb5 ${tracks.size} faixa(s)",
             "Audio files found on the device:\n$listing\n\n" +
+                "(storage volumes searched: $volumeInfo)\n" +
                 "Use play_media with one of these titles to play it.",
             "media"
         )

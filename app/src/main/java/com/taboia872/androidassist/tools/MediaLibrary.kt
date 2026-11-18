@@ -30,6 +30,8 @@ object MediaLibrary {
         val album: String,
         val durationMs: Long,
         val mimeType: String,
+        /** When the system indexed the file (seconds since the epoch). */
+        val dateAdded: Long = 0L,
         /**
          * The storage volume the track lives on ("primary", the SD
          * card's uuid, ...).
@@ -103,7 +105,8 @@ object MediaLibrary {
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.MIME_TYPE,
-            MediaStore.Audio.Media.VOLUME_NAME
+            MediaStore.Audio.Media.VOLUME_NAME,
+            MediaStore.Audio.Media.DATE_ADDED
         )
         val needle = TextNormalize.normalize(query)
         // EVERY external volume: the primary storage AND the SD card.
@@ -112,26 +115,43 @@ object MediaLibrary {
         // The same track can be seen twice (the merged volume and the
         // real one): keep one copy of each.
         val seen = mutableSetOf<String>()
-        for (volume in volumes(context)) {
+        val volumeNames = volumes(context)
+        // The QUOTA per volume. The limit applies to the RESULT, never to
+        // the SCAN: with a global limit the first volume drained the
+        // list and the SD card was never even queried.
+        val perVolume = if (needle.isEmpty()) {
+            // A LIST: every volume gets a share, so the SD card is
+            // always represented (even with a full primary storage).
+            maxOf(1, (limit + volumeNames.size - 1) / volumeNames.size)
+        } else {
+            // A SEARCH: the matches are what matter.
+            limit
+        }
+        for (volume in volumeNames) {
             val collection = if (android.os.Build.VERSION.SDK_INT >= 29) {
                 MediaStore.Audio.Media.getContentUri(volume)
             } else {
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             }
-            searchIn(context, collection, volume, projection, needle, out, limit, seen)
-            if (out.size >= limit) break
+            searchIn(context, collection, volume, projection, needle, out, perVolume, seen)
         }
-        return out
+        // The list is coherent across the volumes: the most recent
+        // first, wherever the track lives.
+        out.sortByDescending { it.dateAdded }
+        return out.take(limit)
     }
 
     /**
      * The external volumes of the device: the primary storage AND the SD
      * cards.
      *
-     * The names come from getExternalVolumeNames() ("primary", the SD
-     * card's uuid...). The fallback is the MERGED "external" volume,
-     * which always exists — the synthetic "external_primary" would be a
-     * volume that does not exist and the query would return nothing.
+     * The names come from getExternalVolumeNames() and look like
+     * ["external_primary", "e4f4-c068"] — the first is the internal
+     * storage, the second the SD card's uuid. Each of them works with
+     * getContentUri(volumeName).
+     *
+     * The fallback is the MERGED "external" volume (a view of all of
+     * them at once) — it always exists.
      */
     private fun volumes(context: Context): List<String> {
         if (android.os.Build.VERSION.SDK_INT < 29) {
@@ -144,6 +164,9 @@ object MediaLibrary {
             listOf(MediaStore.VOLUME_EXTERNAL)
         }
     }
+
+    /** The external volumes of the device (for the diagnostic message). */
+    fun volumeNames(context: Context): List<String> = volumes(context)
 
     /** Query ONE volume and collect the matching tracks. */
     private fun searchIn(
@@ -170,6 +193,7 @@ object MediaLibrary {
                 val durCol = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
                 val mimeCol = c.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
                 val volCol = c.getColumnIndex(MediaStore.Audio.Media.VOLUME_NAME)
+                val dateCol = c.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
                 // Start at the FIRST row: a bare moveToNext() skips it.
                 if (c.moveToFirst()) {
                     do {
@@ -198,6 +222,7 @@ object MediaLibrary {
                                 mimeType = if (mimeCol >= 0) {
                                     c.getString(mimeCol) ?: "audio/*"
                                 } else "audio/*",
+                                dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
                                 volumeName = rowVolume
                             )
                         )
