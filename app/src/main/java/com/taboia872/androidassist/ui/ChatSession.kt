@@ -608,11 +608,20 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 }
             }
 
-            // Auto-save the finished exchange (skip pure-error turns)
+            // Auto-save the finished exchange.
+            //
+            // It used to be skipped when ANY message had an error block
+            // ("skip pure-error turns"), but that threw away everything
+            // AFTER the error as well: the user kept talking, the model
+            // kept answering, and NONE of it was saved — so reopening
+            // the chat lost the whole tail. The condition is now about
+            // the CURRENT turn only (an error with no answer at all),
+            // and the error block stays in the history.
             val c = ctx
-            if (c != null && messages.isNotEmpty() &&
-                messages.none { m -> m.blocks.any { it.text.startsWith("\u26a0\ufe0f") } }
-            ) {
+            val lastTurnHasContent = messages.lastOrNull()?.blocks?.any {
+                it.text.isNotBlank()
+            } ?: false
+            if (c != null && messages.isNotEmpty() && lastTurnHasContent) {
                 withContext(Dispatchers.IO) {
                     ChatStore.save(
                         c, chatId,
