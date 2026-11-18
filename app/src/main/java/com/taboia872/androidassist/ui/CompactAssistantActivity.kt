@@ -742,16 +742,27 @@ private fun FullscreenAssistant(
                         )
                     }
                 }
+                // The SENTINEL: scrolling to it is the exact bottom,
+                // whatever the height of the last bubble. Scrolling to the
+                // last MESSAGE puts its top at the top of the viewport —
+                // that is what made the overlay jump while the text
+                // streamed.
+                item { Spacer(Modifier.height(1.dp)) }
             }
 
+            // The index of the sentinel, computed from the DATA (the
+            // layout count can be stale while the list re-lays out).
+            val sentinelIndex = (if (listening && transcript.isEmpty()) 1 else 0) +
+                (if (transcript.isNotEmpty()) 1 else 0) +
+                session.messages.size +
+                (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
+                (if (voiceError != null) 1 else 0)
             LaunchedEffect(
                 session.messages.size,
                 session.messages.lastOrNull()?.blocks?.lastOrNull()?.text,
                 transcript
             ) {
-                if (session.messages.isNotEmpty()) {
-                    listState.animateScrollToItem(session.messages.lastIndex)
-                }
+                listState.scrollToItem(sentinelIndex)
             }
 
             viewerImage?.let { img ->
