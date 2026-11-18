@@ -56,12 +56,12 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +76,7 @@ import com.taboia872.androidassist.util.PdfExtractor
 import com.taboia872.androidassist.util.PdfResult
 import com.taboia872.androidassist.voice.VoiceEngine
 import com.taboia872.androidassist.voice.SystemRecognizer
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -131,9 +132,6 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
 
     // Auto-scroll only until the user scrolls manually: streaming keeps
-    // yanking the view back to the bottom (user report). One nudge per new
-    // message, then hands off.
-    var autoScroll by remember { mutableStateOf(true) }
 
     // ---- attachments ----
     var attachedImage by remember { mutableStateOf<Bitmap?>(null) }
@@ -528,86 +526,122 @@ fun ChatScreen(
 
             // ---- auto-scroll ------------------------------------------------
             //
-            // ONE controller, three rules:
-            //  1) FOLLOW the bottom while the user is NOT dragging.
-            //  2) The user's drag CANCELS the follow (and it says so, so
-            //     the user knows the view stopped moving on its own).
-            //  3) It never jumps to the top: the anchor is the LAST
-            //     item, and the follow uses scrollToItem (instant) — an
-            //     animation would fight the user's finger.
+            // ONE controller, rebuilt from scratch. The rules:
             //
-            // The old code set autoScroll=false on ANY isScrollInProgress,
-            // which also fires for the PROGRAMMATIC scroll (so the follow
-            // died by itself), and only re-enabled it when the message
-            // COUNT changed — while the text kept growing inside the
-            // bubble, the list was anchored to the top and the view
-            // jumped around during the streaming.
+            //  1) FOLLOW the bottom while the user is there. The content
+            //     is observed with snapshotFlow (the LAYOUT), not with
+            //     keys that change — the old code fired on every new
+            //     block of the timeline and SNAPPED to a position
+            //     (scrollToItem is instant), which is the "jump".
+            //  2) The follow is an ANIMATION (animateScrollToItem), so
+            //     the view glides instead of teleporting.
+            //  3) The user's drag turns the follow off; scrolling back
+            //     to the bottom turns it on again.
+            //  4) The anchor is the SENTINEL (an empty item at the end
+            //     of the list): scrolling to it is the exact bottom,
+            //     whatever the height of the last bubble. Scrolling to
+            //     the last MESSAGE puts its TOP at the top of the
+            //     screen — the opposite of following a growing bubble.
             //
-            // isScrollInProgress alone cannot tell a programmatic scroll
-            // from a finger drag, so the drag is detected by the
-            // interaction source: only a TOUCH/DRAG gesture counts.
-            // Is the user dragging WITH A FINGER right now?
-            // collectIsDraggedAsState() is the PUBLIC API for it — it
-            // tells a finger drag from the app's own scroll.
-            //
-            // The source is the LIST STATE's own: the LazyColumn already
-            // uses it, so there is no need for a Modifier.interactionSource
-            // (which does not even exist as a public Modifier extension).
-            val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
-            // True when the list is at (or very close to) the bottom.
-            // Compared against the SENTINEL index (computed from the
-            // data), not against the layout count — the layout count can
-            // be stale while the list re-lays out.
-            val atBottom by remember {
-                derivedStateOf {
-                    val info = listState.layoutInfo
-                    val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                    val sentinel = session.messages.size +
-                        (if (listening) 1 else 0) +
-                        (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
-                        (if (voiceError != null) 1 else 0)
-                    sentinel <= 0 || last >= sentinel - 1
-                }
-            }
-            // The index of the SENTINEL: the messages, plus the optional
-            // thinking bubble, plus the optional voice error, plus the
-            // sentinel itself.
-            //
-            // It is computed from the DATA, not from layoutInfo: the
-            // layout count can be stale while the list re-lays out, and
-            // scrolling to a stale index is what makes the list jump.
+            // The index of the sentinel, computed from the DATA (the
+            // layout count can be stale while the list re-lays out).
             val sentinelIndex = session.messages.size +
                 (if (listening) 1 else 0) +
                 (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
                 (if (voiceError != null) 1 else 0)
-            suspend fun scrollToBottom() {
-                if (sentinelIndex >= 0) {
-                    listState.scrollToItem(sentinelIndex)
+
+            // Is the user dragging WITH A FINGER right now?
+            // collectIsDraggedAsState() tells a finger drag from the
+            // app's own scroll — isScrollInProgress fires for both.
+            val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
+
+            // THE CONTROLLER: one long-lived effect that watches the
+            // content. Every change of the layout (a new block, a new
+            // chunk of text, a new message) is an emission.
+            //
+            // The follow only happens when the user was AT the bottom:
+            // someone reading the history is not dragged away by the
+            // assistant's new lines.
+            LaunchedEffect(listState) {
+                var stickToBottom = true
+                var previousCount = 0
+                var previousLastSize = 0
+                snapshotFlow {
+                    // The layout of the LAST item: its index + its
+                    // height. Both change when the content grows.
+                    //
+                    // The sentinel index is observed HERE, not captured:
+                    // it changes as the messages grow, and a captured
+                    // value made the controller scroll to a STALE index
+                    // (the jump to the wrong place).
+                    val info = listState.layoutInfo
+                    val last = info.visibleItemsInfo.lastOrNull()
+                    Triple(info.totalItemsCount, last?.index ?: -1, last?.size ?: 0) to sentinelIndex
+                }.collect { (layout, liveSentinel) ->
+                    val (count, lastIndex, lastSize) = layout
+                    if (count == 0) return@collect
+                    // The user scrolled away: stop following until they
+                    // come back to the bottom.
+                    if (userIsDragging) {
+                        stickToBottom = false
+                        return@collect
+                    }
+                    val visible = lastIndex >= liveSentinel - 1
+                    if (visible) {
+                        // Back at the bottom (or the content is short):
+                        // follow again.
+                        stickToBottom = true
+                    }
+                    val grew = count != previousCount || lastSize != previousLastSize
+                    previousCount = count
+                    previousLastSize = lastSize
+                    if (!stickToBottom) return@collect
+                    // Nothing changed: no scroll at all. This is what
+                    // stops the jumping — the old code scrolled on
+                    // EVERY new block, even when the view was already
+                    // at the bottom.
+                    if (!grew) return@collect
+                    // The layout knows the item now, so the scroll works.
+                    listState.animateScrollToItem(
+                        index = liveSentinel.coerceAtMost(count - 1),
+                        animationSpec = androidx.compose.animation.core.tween(180)
+                    )
                 }
             }
-            // The content grew (the text is streaming): keep the bottom
-            // in view, but ONLY if the user did not take over.
-            LaunchedEffect(session.messages.size, session.messages.lastOrNull()?.blocks?.size) {
-                if (userIsDragging) return@LaunchedEffect
-                scrollToBottom()
-            }
-            // The streaming text makes the LAST bubble taller: re-anchor
-            // to the bottom. Keyed on the length of the last answer, so
-            // it fires on every chunk of text.
-            val streamingLength = session.messages.lastOrNull()?.blocks
-                ?.lastOrNull { it.kind == "answer" }?.text?.length ?: 0
-            LaunchedEffect(streamingLength) {
-                if (userIsDragging) return@LaunchedEffect
-                scrollToBottom()
-            }
-            // The user took over: stop following and tell them.
-            LaunchedEffect(userIsDragging) {
-                if (userIsDragging) {
-                    autoScroll = false
-                } else if (atBottom) {
-                    // Back at the bottom -> follow again.
-                    autoScroll = true
+
+            // OPENING A CHAT: align with the last answer, instantly.
+            //
+            // The effect above FOLLOWS the growth, but a chat that is
+            // LOADED from the history does not grow — it appears whole.
+            // So this effect aligns it.
+            //
+            // The key is session.chatId: it changes on loadFrom() and on
+            // reset() (a new chat). resumeChatId does NOT work — it is
+            // consumed (set to null) after the load, so the effect would
+            // not fire again for the next chat.
+            //
+            // The layout is observed so the scroll runs AFTER the items
+            // are measured: before that, scrollToItem has nothing to
+            // scroll to and does nothing — which is why opening an old
+            // chat did not align with the last answer.
+            LaunchedEffect(session.chatId) {
+                // Wait for the layout to hold the EXPECTED items — not
+                // just "> 0": loadFrom() sets chatId BEFORE the
+                // messages, so a "> 0" wait would scroll to the content
+                // of the PREVIOUS chat.
+                // The expected count is observed LIVE: sentinelIndex
+                // changes as the messages load, and a captured value
+                // would wait for the wrong count.
+                snapshotFlow {
+                    listState.layoutInfo.totalItemsCount to sentinelIndex
+                }.first { (count, sentinel) ->
+                    count >= sentinel + 1
                 }
+                listState.scrollToItem(
+                    sentinelIndex.coerceAtMost(
+                        (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                    )
+                )
             }
 
             viewerImage?.let { img ->

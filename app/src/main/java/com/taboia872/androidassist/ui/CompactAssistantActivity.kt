@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -65,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -757,12 +761,48 @@ private fun FullscreenAssistant(
                 session.messages.size +
                 (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
                 (if (voiceError != null) 1 else 0)
-            LaunchedEffect(
-                session.messages.size,
-                session.messages.lastOrNull()?.blocks?.lastOrNull()?.text,
-                transcript
-            ) {
-                listState.scrollToItem(sentinelIndex)
+
+            // The same controller as the main chat: follow the bottom
+            // with an ANIMATION, and only when the content actually
+            // grew (the old code snapped on every new block).
+            val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
+            LaunchedEffect(listState) {
+                var stickToBottom = true
+                var previousCount = 0
+                var previousLastSize = 0
+                snapshotFlow {
+                    val info = listState.layoutInfo
+                    val last = info.visibleItemsInfo.lastOrNull()
+                    Triple(info.totalItemsCount, last?.index ?: -1, last?.size ?: 0) to sentinelIndex
+                }.collect { (layout, liveSentinel) ->
+                    val (count, lastIndex, lastSize) = layout
+                    if (count == 0) return@collect
+                    if (userIsDragging) {
+                        stickToBottom = false
+                        return@collect
+                    }
+                    val visible = lastIndex >= liveSentinel - 1
+                    if (visible) stickToBottom = true
+                    val grew = count != previousCount || lastSize != previousLastSize
+                    previousCount = count
+                    previousLastSize = lastSize
+                    if (!stickToBottom || !grew) return@collect
+                    listState.animateScrollToItem(
+                        index = liveSentinel.coerceAtMost(count - 1),
+                        animationSpec = tween(180)
+                    )
+                }
+            }
+            // Opening a chat: align with the last answer, instantly.
+            LaunchedEffect(session.chatId) {
+                snapshotFlow {
+                    listState.layoutInfo.totalItemsCount to sentinelIndex
+                }.first { (count, sentinel) -> count >= sentinel + 1 }
+                listState.scrollToItem(
+                    sentinelIndex.coerceAtMost(
+                        (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                    )
+                )
             }
 
             viewerImage?.let { img ->
