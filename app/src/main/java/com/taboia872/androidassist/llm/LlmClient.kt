@@ -255,7 +255,12 @@ object LlmClient {
             "list_media",
             "List the audio files available on the device (the user's music library), with their title, artist and duration. Use it to find out what can be played before calling play_media.",
             "query" to "Optional filter: a title, artist or album. Leave empty to list the whole library.",
-            required = emptyList()
+            required = emptyList(),
+            // The second parameter goes in extraProps: `tool()` takes a
+            // SINGLE property and always types it as a string.
+            extraProps = mapOf(
+                "limit" to ("integer" to "Optional: how many files to return (default 200, maximum 250).")
+            )
         )
     )
 

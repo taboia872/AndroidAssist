@@ -830,13 +830,20 @@ object DeviceTools {
     /** List the audio files of the device (the user's music). */
     private fun listMedia(context: Context, args: org.json.JSONObject): Result {
         val query = args.optString("query", "").trim()
+        // The whole library by default: a card can hold hundreds of
+        // tracks and a cap of 20 hid most of them.
+        val limit = args.optInt("limit", 200).coerceIn(1, 250)
         val hasPermission = MediaLibrary.hasPermission(context)
         // The LIBRARY (the MediaStore) plus the WORKSPACE tree: the
         // music of a memory card is often NOT indexed by the system, and
         // the SAF folder the user pointed at reaches the very same
         // files.
-        val library = if (hasPermission) MediaLibrary.search(context, query) else emptyList()
-        val workspace = MediaLibrary.workspaceAudio(context, query, limit = 20)
+        val library = if (hasPermission) {
+            MediaLibrary.search(context, query, limit = limit)
+        } else {
+            emptyList()
+        }
+        val workspace = MediaLibrary.workspaceAudio(context, query, limit = limit)
         val tracks = mergeTracks(library, workspace)
         // The DIAGNOSTIC: which volumes were searched. Without it a
         // missing SD card is indistinguishable from an empty library.
@@ -863,10 +870,15 @@ object DeviceTools {
             if (who.isBlank()) "- ${t.title} (${t.durationText()})$from"
             else "- ${t.title} — $who (${t.durationText()})$from"
         }
+        val maybeMore = if (tracks.size >= limit) {
+            " (the list was cut at $limit — use a query to narrow it down)"
+        } else {
+            ""
+        }
         return Result(
             true, "\ud83c\udfb5 ${tracks.size} faixa(s)",
             "Audio files found on the device:\n$listing\n\n" +
-                "(storage volumes searched: $volumeInfo)\n" +
+                "(storage volumes searched: $volumeInfo)$maybeMore\n" +
                 "Use play_media with one of these titles to play it.",
             "media"
         )

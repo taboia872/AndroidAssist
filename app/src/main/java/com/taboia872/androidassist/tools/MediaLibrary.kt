@@ -1,6 +1,7 @@
 package com.taboia872.androidassist.tools
 
 import android.content.ContentUris
+import android.media.MediaMetadataRetriever
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -320,11 +321,16 @@ object MediaLibrary {
      * tree reaches the very same files: that is how the music of the
      * card is listed and played.
      */
-    fun workspaceAudio(context: Context, query: String, limit: Int = 50): List<Track> {
+    fun workspaceAudio(context: Context, query: String, limit: Int = 250): List<Track> {
         if (Workspace.folderUri() == null) return emptyList()
         val needle = TextNormalize.normalize(query)
         val out = mutableListOf<Track>()
         val seen = mutableSetOf<String>()
+        // The tags are read FROM THE FILE (the SAF tree carries no
+        // metadata: the title, the artist and the duration live inside
+        // the audio file). It costs time — every file is opened — so
+        // there is a budget: past it, the file name is the title.
+        val tagsDeadline = System.currentTimeMillis() + TAGS_BUDGET_MS
         // The root of the tree and its subfolders (two levels): the
         // music of a card is usually inside a folder.
         val paths = mutableListOf("")
@@ -338,22 +344,35 @@ object MediaLibrary {
         }
         for (path in paths) {
             for (file in Workspace.filesIn(context, path)) {
-                if (!isAudioName(file.name)) continue
-                val title = file.name.substringBeforeLast('.').trim()
-                if (title.isBlank()) continue
+                if (!isAudioFile(file)) continue
+                val fileTitle = file.name.substringBeforeLast('.').trim()
+                if (fileTitle.isBlank()) continue
+                val tags = if (System.currentTimeMillis() < tagsDeadline) {
+                    readTags(context, file.uri)
+                } else {
+                    null
+                }
+                // The match uses the tags too: the file may be called
+                // "01 - In the End.mp3" and carry "Linkin Park" as the
+                // artist.
+                val tagTitle = tags?.title?.trim().orEmpty()
+                val tagArtist = tags?.artist?.trim().orEmpty()
+                val tagAlbum = tags?.album?.trim().orEmpty()
                 if (needle.isNotEmpty()) {
-                    val hay = TextNormalize.normalize("$title ${path.replace('/', ' ')}")
+                    val hay = TextNormalize.normalize(
+                        "$fileTitle $tagTitle $tagArtist $tagAlbum ${path.replace('/', ' ')}"
+                    )
                     if (!hay.contains(needle)) continue
                 }
-                if (!seen.add(title.lowercase(java.util.Locale.ROOT))) continue
+                if (!seen.add(fileTitle.lowercase(java.util.Locale.ROOT))) continue
                 out.add(
                     Track(
                         // A negative id: this file has no MediaStore row.
                         id = -(out.size + 1L),
-                        title = title,
-                        artist = if (path.isBlank()) "" else path.replace('/', ' '),
-                        album = "",
-                        durationMs = -1L,
+                        title = tagTitle.ifBlank { fileTitle },
+                        artist = tagArtist.ifBlank { if (path.isBlank()) "" else path.replace('/', ' ') },
+                        album = tagAlbum,
+                        durationMs = tags?.durationMs ?: -1L,
                         mimeType = file.mimeType.ifBlank { "audio/*" },
                         dateAdded = 0L,
                         volumeName = "",
@@ -366,17 +385,64 @@ object MediaLibrary {
         return out
     }
 
-    /** True when the file name looks like an audio file. */
-    private fun isAudioName(name: String): Boolean {
-        val ext = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+    /** The tags of an audio file (the SAF tree does not carry them). */
+    private data class Tags(
+        val title: String?,
+        val artist: String?,
+        val album: String?,
+        val durationMs: Long
+    )
+
+    /**
+     * Read the tags of an audio file: title, artist, album and the
+     * duration. It is the same source a music player uses.
+     */
+    private fun readTags(context: Context, uri: Uri): Tags? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            Tags(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE),
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                durationMs = retriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+                )?.toLongOrNull() ?: -1L
+            )
+        } catch (e: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    /**
+     * True when the file is an audio file.
+     *
+     * The MIME type of the provider comes FIRST (it knows the real
+     * type); the extension is the fallback, for the providers that
+     * report "application/octet-stream" for everything.
+     */
+    private fun isAudioFile(file: Workspace.FileEntry): Boolean {
+        val mime = file.mimeType.lowercase(java.util.Locale.ROOT)
+        if (mime.startsWith("audio/")) return true
+        val ext = file.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
         return ext in AUDIO_EXTENSIONS
     }
 
     /** The audio file extensions the assistant recognises. */
     private val AUDIO_EXTENSIONS = setOf(
-        "mp3", "m4a", "m4b", "aac", "flac", "wav", "ogg", "oga", "opus",
-        "mp4", "mka", "wma", "mid", "midi", "3gp", "amr", "caf"
+        "mp3", "mp2", "mpa", "m4a", "m4b", "m4r", "m4p", "aac", "flac", "wav",
+        "wave", "ogg", "oga", "opus", "mp4", "m4v", "mka", "wma", "mid",
+        "midi", "3gp", "3g2", "amr", "caf", "aiff", "aif", "aifc", "ape",
+        "wv", "tta", "dsf", "dff", "snd", "au", "ra", "rm", "mka", "webm"
     )
+
+    /** How long the app spends reading the tags of the files (ms). */
+    private const val TAGS_BUDGET_MS = 10_000L
 
     /**
      * The package name of the player app whose name matches [wanted].
