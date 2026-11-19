@@ -40,7 +40,14 @@ object MediaLibrary {
          * built from ITS volume — a URI built from the primary volume
          * opens nothing on the player.
          */
-        val volumeName: String = ""
+        val volumeName: String = "",
+        /**
+         * The URI of a file the MediaStore does NOT know (the music of a
+         * memory card, reached through the SAF tree of the workspace).
+         * When it is set, it IS the URI to play — the volume/id pair
+         * does not exist in the library.
+         */
+        val contentUri: Uri? = null
     ) {
         /**
          * The content:// URI of the track (readable by a player app).
@@ -50,6 +57,9 @@ object MediaLibrary {
          * what made the SD card tracks fail to play.
          */
         fun uri(): Uri {
+            // A file outside the library (the workspace tree): its own
+            // URI, with the read grant that lets the player open it.
+            contentUri?.let { return it }
             // The volume name is only usable from API 29 (Q) — and it must
             // be a REAL volume name ("primary", the SD card's uuid), not
             // the synthetic "external_primary", or the URI points at a
@@ -66,6 +76,8 @@ object MediaLibrary {
 
         /** "3:42" */
         fun durationText(): String {
+            // The SAF tree does not tell the duration of the file.
+            if (durationMs < 0) return "--:--"
             val total = durationMs / 1000
             return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
         }
@@ -296,6 +308,75 @@ object MediaLibrary {
             false
         }
     }
+
+    /**
+     * The audio files of the WORKSPACE folder (the SAF tree the user
+     * pointed at).
+     *
+     * The MediaStore only knows what the system indexed: the music of a
+     * memory card that was copied with the file manager — or written by
+     * the app itself — is often NOT indexed, so it never shows up in
+     * the library and the assistant cannot see the card at all. The SAF
+     * tree reaches the very same files: that is how the music of the
+     * card is listed and played.
+     */
+    fun workspaceAudio(context: Context, query: String, limit: Int = 50): List<Track> {
+        if (Workspace.folderUri() == null) return emptyList()
+        val needle = TextNormalize.normalize(query)
+        val out = mutableListOf<Track>()
+        val seen = mutableSetOf<String>()
+        // The root of the tree and its subfolders (two levels): the
+        // music of a card is usually inside a folder.
+        val paths = mutableListOf("")
+        val rootEntries = Workspace.entriesIn(context, "") ?: emptyList()
+        for (entry in rootEntries) {
+            if (!entry.isFolder) continue
+            paths.add(entry.name)
+            for (sub in Workspace.entriesIn(context, entry.name) ?: emptyList()) {
+                if (sub.isFolder) paths.add(entry.name + "/" + sub.name)
+            }
+        }
+        for (path in paths) {
+            for (file in Workspace.filesIn(context, path)) {
+                if (!isAudioName(file.name)) continue
+                val title = file.name.substringBeforeLast('.').trim()
+                if (title.isBlank()) continue
+                if (needle.isNotEmpty()) {
+                    val hay = TextNormalize.normalize("$title ${path.replace('/', ' ')}")
+                    if (!hay.contains(needle)) continue
+                }
+                if (!seen.add(title.lowercase(java.util.Locale.ROOT))) continue
+                out.add(
+                    Track(
+                        // A negative id: this file has no MediaStore row.
+                        id = -(out.size + 1L),
+                        title = title,
+                        artist = if (path.isBlank()) "" else path.replace('/', ' '),
+                        album = "",
+                        durationMs = -1L,
+                        mimeType = file.mimeType.ifBlank { "audio/*" },
+                        dateAdded = 0L,
+                        volumeName = "",
+                        contentUri = file.uri
+                    )
+                )
+                if (out.size >= limit) return out
+            }
+        }
+        return out
+    }
+
+    /** True when the file name looks like an audio file. */
+    private fun isAudioName(name: String): Boolean {
+        val ext = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        return ext in AUDIO_EXTENSIONS
+    }
+
+    /** The audio file extensions the assistant recognises. */
+    private val AUDIO_EXTENSIONS = setOf(
+        "mp3", "m4a", "m4b", "aac", "flac", "wav", "ogg", "oga", "opus",
+        "mp4", "mka", "wma", "mid", "midi", "3gp", "amr", "caf"
+    )
 
     /**
      * The package name of the player app whose name matches [wanted].

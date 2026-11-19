@@ -829,14 +829,21 @@ object DeviceTools {
 
     /** List the audio files of the device (the user's music). */
     private fun listMedia(context: Context, args: org.json.JSONObject): Result {
-        if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
         val query = args.optString("query", "").trim()
-        val tracks = MediaLibrary.search(context, query)
+        val hasPermission = MediaLibrary.hasPermission(context)
+        // The LIBRARY (the MediaStore) plus the WORKSPACE tree: the
+        // music of a memory card is often NOT indexed by the system, and
+        // the SAF folder the user pointed at reaches the very same
+        // files.
+        val library = if (hasPermission) MediaLibrary.search(context, query) else emptyList()
+        val workspace = MediaLibrary.workspaceAudio(context, query, limit = 20)
+        val tracks = mergeTracks(library, workspace)
         // The DIAGNOSTIC: which volumes were searched. Without it a
         // missing SD card is indistinguishable from an empty library.
         val volumes = MediaLibrary.volumeNames(context)
         val volumeInfo = if (volumes.isEmpty()) "none" else volumes.joinToString(", ")
         if (tracks.isEmpty()) {
+            if (!hasPermission) return mediaPermissionMissing()
             val what = if (query.isEmpty()) "the music library" else "anything matching '$query'"
             return Result(
                 true, "\ud83c\udfb5 0 faixa(s)",
@@ -844,12 +851,17 @@ object DeviceTools {
                     "Storage volumes searched: $volumeInfo. " +
                     "If the music is on a memory card, the system may not have " +
                     "indexed it yet — tell the user to open any music player " +
-                    "once so the system scans the card, then try again.",
+                    "once so the system scans the card, then try again. " +
+                    "The assistant's own folder was searched too (no audio file " +
+                    "there).",
                 "media"
             )
         }
         val listing = tracks.joinToString("\n") { t ->
-            "- ${t.title} — ${t.artist} (${t.durationText()})"
+            val who = t.artist.trim()
+            val from = if (t.contentUri != null) " [assistant's folder]" else ""
+            if (who.isBlank()) "- ${t.title} (${t.durationText()})$from"
+            else "- ${t.title} — $who (${t.durationText()})$from"
         }
         return Result(
             true, "\ud83c\udfb5 ${tracks.size} faixa(s)",
@@ -858,6 +870,26 @@ object DeviceTools {
                 "Use play_media with one of these titles to play it.",
             "media"
         )
+    }
+
+    /**
+     * Join the tracks of the library and of the workspace tree without
+     * repeating the same title (the music of a card can be indexed AND
+     * inside the folder the user pointed at).
+     */
+    private fun mergeTracks(
+        a: List<MediaLibrary.Track>,
+        b: List<MediaLibrary.Track>
+    ): List<MediaLibrary.Track> {
+        val out = ArrayList<MediaLibrary.Track>(a.size + b.size)
+        val seen = HashSet<String>()
+        for (t in a + b) {
+            val key = t.title.trim().lowercase(Locale.ROOT)
+            if (key.isBlank()) continue
+            if (!seen.add(key)) continue
+            out.add(t)
+        }
+        return out
     }
 
     /**
@@ -892,14 +924,26 @@ object DeviceTools {
                 )
             }
         }
-        // The device library.
-        if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
-        val tracks = MediaLibrary.search(context, title, limit = 10)
+        // The device library: the MediaStore PLUS the workspace tree
+        // (the music of a memory card is often not indexed by the
+        // system — the folder the user pointed at reaches it).
+        val tracks = mergeTracks(
+            if (MediaLibrary.hasPermission(context)) {
+                MediaLibrary.search(context, title, limit = 10)
+            } else {
+                emptyList()
+            },
+            MediaLibrary.workspaceAudio(context, title, limit = 10)
+        )
         if (tracks.isEmpty()) {
+            if (!MediaLibrary.hasPermission(context)) return mediaPermissionMissing()
             // Hand the model the closest tracks: without them it just
             // said "there is no version of the song in your library" and
             // offered YouTube, without knowing what IS there.
-            val closest = MediaLibrary.search(context, "", limit = 12)
+            val closest = mergeTracks(
+                MediaLibrary.search(context, "", limit = 12),
+                MediaLibrary.workspaceAudio(context, "", limit = 12)
+            )
             val names = closest.joinToString(", ") { "'${it.title}' (${it.artist})" }
             return Result(
                 false, "\ud83c\udfb5 ?",
