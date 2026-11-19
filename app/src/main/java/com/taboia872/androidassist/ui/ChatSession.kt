@@ -378,8 +378,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // (or that got a useless result) would call the same tool
             // forever — the "spamming tool after tool" behaviour.
             val usedToolCalls = mutableSetOf<String>()
-            // The web search runs at most ONCE per turn.
-            var webSearchUsedThisTurn = false
+            // The web search runs at most ONCE per TERM: several
+            // searches with DIFFERENT terms are research (the model
+            // refining the search), not spam — blocking them got in the
+            // way of the model doing more than one search per turn. Only
+            // the SAME term repeated is the loop that burned the quota.
+            val webSearchQueries = mutableSetOf<String>()
             // play_media ALSO runs at most ONCE per turn: it OPENS a
             // player, so calling it again with a different title does
             // not make sense — the first call either opened the player or
@@ -397,6 +401,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 }
                 for ((theCallId, toolName, toolArgs) in callsThisRound) {
                     val callSignature = "$toolName|${toolArgs.ifBlank { "{}" }}"
+                    // The term of a web_search call — the guard below
+                    // compares it with the terms already used in this
+                    // turn.
+                    val searchQuery = if (toolName == "web_search") {
+                        try {
+                            org.json.JSONObject(toolArgs).optString("query", "").ifBlank { q }
+                        } catch (e: Exception) { q }
+                    } else ""
+                    val searchKey = searchQuery.trim().lowercase(java.util.Locale.ROOT)
                     // What the model wrote BEFORE this tool call (per round).
                     val assistantContent = roundAnswerText()
                     val toolHeader: String
@@ -432,19 +445,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                             "not found, say which tracks ARE available (use " +
                             "list_media) instead of trying again."
                         addBlock("tool", toolHeader, "")
-                    } else if (toolName == "web_search" && webSearchUsedThisTurn) {
-                        // The search already ran in this turn (the model asked
-                        // for it twice in the same round).
+                    } else if (toolName == "web_search" && searchKey in webSearchQueries) {
+                        // The SAME term was already searched in this turn.
                         toolHeader = "\ud83d\udd12 web_search (repetida)"
-                        toolResult = "The web search already ran in this turn. Do NOT " +
-                            "search again — use the results you already have and answer."
+                        toolResult = "The web search for '$searchQuery' already ran in " +
+                            "this turn. Do NOT search the same term again — use the " +
+                            "results you already have, or search a DIFFERENT term if " +
+                            "you need something else. Answer the user now."
                         addBlock("tool", toolHeader, "")
                     } else if (toolName == "web_search") {
-                        webSearchUsedThisTurn = true
+                        webSearchQueries.add(searchKey)
                         status = Strings.t(Strings.searching)
-                        val searchQuery = try {
-                            org.json.JSONObject(toolArgs).optString("query", "").ifBlank { q }
-                        } catch (e: Exception) { q }
                         val outcome = SearchEngines.search(searchQuery)
                         val detailForUser: String
                         when (outcome) {
