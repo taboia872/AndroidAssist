@@ -33,8 +33,6 @@ object ToolCatalog {
         "delete_file" to "delete a file from the workspace folder",
         "delete_folder" to "delete a folder and everything inside it",
         "send_message" to "send a message to a contact of the agenda",
-        "play_media" to "play a music track of the device (or open YouTube)",
-        "list_media" to "list the music files available on the device",
         "save_memory" to "save a lasting memory about the user",
         "search_memories" to "search the memories already saved",
         "forget_memory" to "delete a memory that is wrong or outdated"

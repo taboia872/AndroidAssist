@@ -61,7 +61,6 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -225,12 +224,6 @@ private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
             ToolAbility.MESSAGING, Icons.Default.Message,
             Strings.abilityMessaging, Strings.abilityMessagingDesc
         )
-    ),
-    Strings.abilityGroupMedia to listOf(
-        AbilityRow(
-            ToolAbility.MEDIA, Icons.Default.MusicNote,
-            Strings.abilityMedia, Strings.abilityMediaDesc
-        )
     )
 )
 
@@ -338,13 +331,6 @@ fun SettingsScreen(onBack: () -> Unit) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         AppSettings.update { it.copy(contactsPermissionGranted = granted) }
-    }
-    // The media permission: READ_MEDIA_AUDIO on Android 13+,
-    // READ_EXTERNAL_STORAGE on the older versions.
-    val mediaPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        AppSettings.update { it.copy(mediaPermissionGranted = granted) }
     }
 
     var showCalendarModeDialog by remember { mutableStateOf(false) }
@@ -834,35 +820,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 } else {
                                     contactsPermissionLauncher.launch(
                                         android.Manifest.permission.READ_CONTACTS
-                                    )
-                                }
-                            }
-                        )
-                        // The media permission: the assistant reads the
-                        // music library of the device to play a track.
-                        val mediaGranted =
-                            com.taboia872.androidassist.tools.MediaLibrary
-                                .hasPermission(context)
-                        SettingsItem(
-                            icon = Icons.Default.MusicNote,
-                            title = Strings.t(Strings.mediaPermissionLabel),
-                            subtitle = if (mediaGranted)
-                                Strings.t(Strings.mediaPermissionGranted)
-                            else Strings.t(Strings.mediaPermissionDenied),
-                            onClick = {
-                                if (mediaGranted) {
-                                    // Let the user revoke it from the system.
-                                    val intent = Intent(
-                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    )
-                                    try {
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                    }
-                                } else {
-                                    mediaPermissionLauncher.launch(
-                                        com.taboia872.androidassist.tools.MediaLibrary.permission()
                                     )
                                 }
                             }

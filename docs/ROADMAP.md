@@ -33,7 +33,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 | Agendamento de tarefa (executor em background) | ❌ não existe (manifest sem nenhum `receiver`, sem `BOOT_COMPLETED`, sem `FOREGROUND_SERVICE`) |
 | Página HTML gerada + link no chat | ❌ não existe (nenhum `WebView` no app) |
 | Modelo por tarefa / pipeline imagem→principal | ❌ não existe (`AppConfig` tem UM `model`) |
-| Tocar mídia (música/arquivo/YouTube) | ✅ feito (`c63795c`) — MediaStore + intent pro player; YouTube abre a busca |
+| Tocar mídia (música/arquivo/YouTube) | ❌ **REMOVIDO** (2026-11-19, por decisão do Juliano: o assistente não reproduz música) |
 | Enviar mensagem a contato específico | ⚠️ parcial — `share_text` abre o share sheet genérico |
 | Leitura de contatos | ❌ não existe (`ContactsContract` ausente) |
 
@@ -45,7 +45,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 |---|---|---|---|---|
 | 1 | **(a) Pasta apontada + tools de arquivo** | médio | alto | ✅ **FEITO** (commit `493e508`) |
 | 2 | **(e) Contato + WhatsApp** | médio | alto | ✅ **FEITO** (commit `493e508`) |
-| 3 | (d) `play_media` — tocar música | baixo | alto | ✅ **FEITO** (commit `c63795c`) |
+| 3 | (d) `play_media` — tocar música | baixo | alto | ❌ **CANCELADO** (removido em 2026-11-19) |
 | 4 | (c) `modelVision` — pipeline de imagem | médio | médio | pendente |
 | 5 | (b) Agendamento de tarefas | alto | alto | pendente (por último) |
 
@@ -110,9 +110,13 @@ contato à mão. Duas camadas possíveis:
 - **com permissão**: `SmsManager` para SMS direto + receiver de resposta. Mais
   invasivo; único jeito de "ler e responder".
 
-### (d) play_media — ✅ FEITO (`c63795c`)
+### (d) play_media — ❌ CANCELADO (removido em 2026-11-19)
 
-Duas tools: `play_media` (toca) e `list_media` (lista a biblioteca).
+**Cancelado**: as tools `play_media` e `list_media` foram removidas do app
+(inclusive a permissão de mídia, o `MediaLibrary` inteiro e o item de
+permissão nas Configurações). O assistente não reproduz música — o
+escopo ficou em imagens, PDFs, documentos, arquivos da pasta apontada,
+agenda, contatos, apps, localização e busca web.
 
 O catálogo é o **MediaStore** (`MediaStore.Audio.Media`), que é o índice do
 próprio sistema — a música do usuário já está lá, em /Music, /Downloads, no

@@ -241,27 +241,6 @@ object LlmClient {
                 "app" to ("string" to "Optional messaging app to prefer: 'whatsapp', 'telegram', 'sms' — omit to let the user pick")
             )
         ),
-        ToolAbility.MEDIA to tool(
-            "play_media",
-            "Play a music track. With source='device' (the default) it finds the track among the audio files of the phone and sends it to the user's music player app. With source='youtube' it opens the YouTube search for that title on the device.",
-            "title" to "The title of the track, e.g. 'Bohemian Rhapsody' or 'Roxanne'",
-            required = listOf("title"),
-            extraProps = mapOf(
-                "source" to ("string" to "Where to play it: 'device' for the user's own music files, 'youtube' to open YouTube. Default 'device'."),
-                "player" to ("string" to "Optional name of the player app to use, e.g. 'Spotify'. Omit to let Android pick the default player.")
-            )
-        ),
-        ToolAbility.MEDIA to tool(
-            "list_media",
-            "List the audio files available on the device (the user's music library), with their title, artist and duration. Use it to find out what can be played before calling play_media.",
-            "query" to "Optional filter: a title, artist or album. Leave empty to list the whole library.",
-            required = emptyList(),
-            // The second parameter goes in extraProps: `tool()` takes a
-            // SINGLE property and always types it as a string.
-            extraProps = mapOf(
-                "limit" to ("integer" to "Optional: how many files to return (default 200, maximum 250).")
-            )
-        )
     )
 
     /**
