@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -304,6 +305,7 @@ fun ToolBlock(text: String, detail: String = "") {
         text.startsWith("\ud83d\udcf1") -> Icons.Default.Apps
         text.startsWith("\ud83d\udccb") -> Icons.Default.ContentPaste
         text.startsWith("\ud83d\udd17") -> Icons.Default.Share
+        text.startsWith("\ud83c\udf10") -> Icons.Default.Public
         text.startsWith("\ud83d\udccd") -> Icons.Default.Place
         else -> Icons.Default.Build
     }

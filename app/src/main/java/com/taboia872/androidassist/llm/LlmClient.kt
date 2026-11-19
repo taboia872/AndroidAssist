@@ -231,6 +231,15 @@ object LlmClient {
                 "folder" to ("string" to "Optional subfolder of the workspace that CONTAINS the folder to delete. Leave empty for the workspace root.")
             )
         ),
+        ToolAbility.OPEN_URL to tool(
+            "open_url",
+            "Open a web page on the device, in the browser. Use it when the user asks to open a link, a site, a YouTube video or playlist, or to see one of the results of a web search.",
+            "url" to "The full address, starting with http:// or https://",
+            required = listOf("url"),
+            extraProps = mapOf(
+                "title" to ("string" to "Optional label for the link (the title of the page), shown to the user.")
+            )
+        ),
         ToolAbility.MESSAGING to tool(
             "send_message",
             "Send a message to a contact of the user's agenda (WhatsApp, Telegram, SMS — whichever messaging app is installed). The contact is chosen by NAME from the user's contacts, and the message opens ready to send — the user confirms it before it goes.",

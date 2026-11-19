@@ -27,6 +27,8 @@ object ToolAbility {
     const val FILES = "files"
     /** Send a message to a contact of the agenda (WhatsApp and friends). */
     const val MESSAGING = "messaging"
+    /** Open a web page (a link from a search, a site, a playlist). */
+    const val OPEN_URL = "open_url"
 
     /** Ability id -> the tool function names it covers (one or more). */
     val TOOLS: Map<String, List<String>> = mapOf(
@@ -42,7 +44,8 @@ object ToolAbility {
             "write_file", "read_file", "list_files", "create_folder",
             "delete_file", "delete_folder"
         ),
-        MESSAGING to listOf("send_message")
+        MESSAGING to listOf("send_message"),
+        OPEN_URL to listOf("open_url")
     )
 
     /** The memory tools — their own group, independent from the abilities. */

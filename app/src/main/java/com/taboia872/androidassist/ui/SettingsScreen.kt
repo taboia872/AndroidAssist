@@ -203,6 +203,10 @@ private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
         AbilityRow(
             ToolAbility.SHARE, Icons.Default.Share,
             Strings.abilityShare, Strings.abilityShareDesc
+        ),
+        AbilityRow(
+            ToolAbility.OPEN_URL, Icons.Default.Link,
+            Strings.abilityOpenUrl, Strings.abilityOpenUrlDesc
         )
     ),
     Strings.abilityGroupPlace to listOf(

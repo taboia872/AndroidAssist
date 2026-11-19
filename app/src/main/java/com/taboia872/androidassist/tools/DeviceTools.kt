@@ -2,6 +2,7 @@ package com.taboia872.androidassist.tools
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import com.taboia872.androidassist.net.Net
@@ -52,6 +53,7 @@ object DeviceTools {
                 "delete_file" -> deleteFile(context, args)
                 "delete_folder" -> deleteFolder(context, args)
                 "send_message" -> sendMessage(context, args)
+                "open_url" -> openUrl(context, args)
                 else -> Result(
                     ok = false,
                     userText = "? $name",
@@ -805,6 +807,62 @@ object DeviceTools {
             )
         } else {
             Result(false, "\ud83d\udcc1 ?", res.message, "files")
+        }
+    }
+
+    // ------------------------------------------------------------- web
+
+    /**
+     * Open a web page on the device (the browser).
+     *
+     * The model gets the addresses from the web search results and
+     * opens the one the user wants to see ("é esse link aqui"), or a
+     * site/playlist the user asked for by name.
+     *
+     * ONLY http/https: the app must not become a launcher of arbitrary
+     * intents (file://, content://, intent://) — the model does not
+     * get to run things, it only opens web pages.
+     */
+    private fun openUrl(context: Context, args: org.json.JSONObject): Result {
+        val raw = args.optString("url", "").trim()
+            .ifBlank { args.optString("link", "").trim() }
+            .ifBlank { args.optString("uri", "").trim() }
+        if (raw.isBlank()) {
+            return Result(false, "\ud83c\udf10 ?", "Which link? Provide the url.", "search")
+        }
+        val uri = try {
+            Uri.parse(raw)
+        } catch (e: Exception) {
+            null
+        }
+        val scheme = uri?.scheme?.lowercase(Locale.ROOT) ?: ""
+        if (uri == null || (scheme != "http" && scheme != "https")) {
+            return Result(
+                false, "\ud83c\udf10 ?",
+                "'$raw' is not a web address. Only http and https links can be " +
+                    "opened (a link from the search results is fine).",
+                "search"
+            )
+        }
+        val title = args.optString("title", "").trim()
+        val label = if (title.isBlank()) (uri.host ?: raw) else title
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(intent)
+            Result(
+                true, "\ud83c\udf10 $label",
+                "Opened '$raw' in the browser on the device. The user is looking " +
+                    "at the page now — answer with what they asked.",
+                "search"
+            )
+        } catch (e: Exception) {
+            Result(
+                false, "\ud83c\udf10 ?",
+                "Could not open '$raw' — no browser on the device can handle it.",
+                "search"
+            )
         }
     }
 

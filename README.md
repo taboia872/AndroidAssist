@@ -2,13 +2,17 @@
 
 Assistente Android nativo em Kotlin/Compose — chat multi-provider com voz, busca web e integração como assistente do sistema.
 
+Versão atual: **0.4.0**
+
 ## Recursos
 
 - **Chat multi-provider** — qualquer endpoint OpenAI-compatible: OpenRouter, Groq, Ollama Cloud/PC, NVIDIA NIM, endpoints customizados salvos
 - **Streaming completo** — tokens ao vivo, blocos de pensamento colapsáveis, blocos de ferramenta com resultados da busca, respostas agênticas em múltiplas rodadas
 - **Markdown real** — tabelas GFM, code blocks com botão de copiar, listas, headers (lib [multiplatform-markdown-renderer](https://github.com/mikepenz/multiplatform-markdown-renderer))
 - **Busca web** (function calling) — DuckDuckGo (sem chave), Parallel MCP (sem chave), Brave, Exa, LangSearch, Jina Reader; parâmetros: nº de resultados, região, recenticidade
-- **Ferramentas do celular** (function calling local) — alarme, timer, evento no calendário (salvamento direto com escolha de calendário ou confirmação no app), abrir apps (com whitelist), área de transferência, compartilhar, localização aproximada (fix fresco + reverse geocode via OpenStreetMap, sem Google), abrir no mapa (geo: URI — Organic Maps/OsmAnd compatíveis)
+- **Ferramentas do celular** (function calling local) — alarme, timer, evento no calendário (salvamento direto com escolha de calendário ou confirmação no app), abrir apps (com whitelist), **abrir links** (página, site, playlist do YouTube), área de transferência, compartilhar, localização aproximada (fix fresco + reverse geocode via OpenStreetMap, sem Google), abrir no mapa (geo: URI — Organic Maps/OsmAnd compatíveis)
+- **Arquivos e documentos** — pasta apontada pelo usuário (SAF, permissão persistente): criar, ler, listar e apagar arquivos e subpastas; anexos de imagem e PDF no chat; backup fracionado (personas, memórias, chaves, chats, endpoints) gravado direto na pasta
+- **Contatos** — abrir o WhatsApp (ou outro app) com a mensagem pronta para o contato escolhido pelo nome
 - **Voz** — STT: reconhecedor do sistema ou Groq Whisper; TTS: motor do sistema ou FishAudio; idiomas de captura e síntese independentes
 - **Assistente do sistema** — responde ao gesto do assistente com overlay "bloquinho", auto-start de escuta
 - **Temas** — sistema (teal), dinâmico (Material You), claro, escuro + cor de destaque

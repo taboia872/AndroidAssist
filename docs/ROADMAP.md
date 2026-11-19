@@ -15,9 +15,10 @@ Já existe e funciona:
 - Chat multi-provider com streaming, blocos (pensamento/resposta/tool), markdown,
   visão (imagem), PDFs.
 - Voz: STT (sistema ou Groq Whisper) e TTS (sistema ou FishAudio), com VAD adaptativo.
-- Tools independentes com **toggle por habilidade**: busca web, 8 habilidades
+- Tools independentes com **toggle por habilidade**: busca web, habilidades
   Android (alarme, timer, agenda, abrir app,剪贴板, compartilhar, localização,
-  mapa) e 3 tools de memória. Cada grupo tem seu switch.
+  mapa, **abrir link**, arquivos, mensagens) e 3 tools de memória. Cada grupo
+  tem seu switch.
 - O prompt agora **lista as tools disponíveis e as desligadas** — o modelo para de
   tentar chamar habilidade desativada.
 - Personas completas (prompt + modelo + voz + busca).
