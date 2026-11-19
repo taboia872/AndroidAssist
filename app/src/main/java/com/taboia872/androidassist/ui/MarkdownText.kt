@@ -84,6 +84,18 @@ fun MarkdownText(
         components = markdownComponents(
             codeFence = { state: MarkdownComponentModel ->
                 CopyableCodeFence(state.content, state.node)
+            },
+            // The library gives every column the same width and cuts
+            // the text with an ellipsis; the tables of the app follow
+            // the content of each column.
+            table = { state: MarkdownComponentModel ->
+                MarkdownTableFromNode(
+                    state.content,
+                    state.node,
+                    LocalTextStyle.current.copy(color = color),
+                    linkColor,
+                    blockBg
+                )
             }
         ),
         colors = markdownColor(
@@ -215,7 +227,33 @@ fun MarkdownTextStreaming(
     }
 }
 
-/** GFM table -> real grid: bold header + divider, weight-equal columns. */
+/**
+ * The column weights, from the CONTENT.
+ *
+ * The library (and the first version of this block) gave every column
+ * the SAME width: a 2-digit track number took a third of the screen
+ * while the title — the column the user actually reads — was squeezed
+ * and truncated. The width now follows the longest cell of the column.
+ */
+private fun columnWeights(rows: List<List<String>>): List<Float> {
+    if (rows.isEmpty()) return emptyList()
+    val columns = rows.maxOf { it.size }
+    val weights = ArrayList<Float>(columns)
+    for (c in 0 until columns) {
+        var maxLen = 0
+        for (row in rows) {
+            val cell = row.getOrNull(c)?.trim() ?: ""
+            if (cell.length > maxLen) maxLen = cell.length
+        }
+        // Narrow columns stay narrow, but never narrower than a number
+        // plus a padding; long ones are capped so one verbose column
+        // does not eat the whole table.
+        weights.add(maxLen.coerceIn(3, 40).toFloat())
+    }
+    return weights
+}
+
+/** GFM table -> real grid: bold header + divider, columns by content. */
 @Composable
 private fun TableBlock(
     rows: List<List<String>>,
@@ -226,6 +264,7 @@ private fun TableBlock(
     val header = rows.first()
     val body = rows.drop(1)
     val colCount = header.size
+    val weights = remember(rows) { columnWeights(rows) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -241,7 +280,7 @@ private fun TableBlock(
                         inlineFormatted(cell.trim(), baseStyle, linkColor, codeBackground),
                         style = baseStyle.copy(fontWeight = FontWeight.Bold),
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(weights.getOrElse(idx) { 1f })
                             .padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
@@ -259,7 +298,7 @@ private fun TableBlock(
                             inlineFormatted(cell.trim(), baseStyle, linkColor, codeBackground),
                             style = baseStyle,
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(weights.getOrElse(idx) { 1f })
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
@@ -267,6 +306,31 @@ private fun TableBlock(
             }
         }
     }
+}
+
+/**
+ * The table of the FINISHED message (the library parses it): the same
+ * grid of the streaming renderer, with the columns by content.
+ *
+ * The raw markdown of the node is reused (the library hands over the
+ * whole document plus the table node) — no need to walk the GFM AST.
+ */
+@Composable
+private fun MarkdownTableFromNode(
+    content: String,
+    node: ASTNode,
+    baseStyle: TextStyle,
+    linkColor: Color,
+    codeBackground: Color
+) {
+    val rows = remember(node, content) {
+        node.getTextInNode(content).toString()
+            .split("\n")
+            .filter { isTableRow(it) && !isTableSeparator(it) }
+            .map { splitRow(it) }
+    }
+    if (rows.isEmpty()) return
+    TableBlock(rows, baseStyle, linkColor, codeBackground)
 }
 
 /** Fenced code -> mono surface with horizontal scroll. */
@@ -310,17 +374,28 @@ private fun splitBlocks(text: String): List<MdBlock> {
     }
     while (i < lines.size) {
         val line = lines[i]
-        // GFM table: header + separator + body — consume the WHOLE table
-        if (isTableRow(line) && i + 1 < lines.size && isTableSeparator(lines[i + 1])) {
+        // A TABLE: the header row, the separator and the body rows all
+        // start with "|". While the model is still writing it, the table
+        // is INCOMPLETE (no separator yet, or the last row without its
+        // closing pipe) — as prose it wraps into a huge column of text
+        // (one cell per line) and only compacts when the table closes.
+        // A monospace preview keeps the height stable while it streams.
+        if (line.trimStart().startsWith("|")) {
             flushProse()
-            val rows = mutableListOf<List<String>>()
-            rows.add(splitRow(line))
-            i += 2
-            while (i < lines.size && isTableRow(lines[i])) {
-                rows.add(splitRow(lines[i]))
+            val tableLines = mutableListOf<String>()
+            while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                tableLines.add(lines[i])
                 i++
             }
-            out.add(MdBlock(false, "", tableRows = rows))
+            val complete = tableLines.size >= 2 && isTableSeparator(tableLines[1])
+            if (complete) {
+                val rows = tableLines
+                    .filter { !isTableSeparator(it) }
+                    .map { splitRow(it) }
+                out.add(MdBlock(false, "", tableRows = rows))
+            } else {
+                out.add(MdBlock(true, tableLines.joinToString("\n")))
+            }
             continue
         }
         if (line.trimStart().startsWith("```")) {
