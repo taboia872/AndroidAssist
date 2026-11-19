@@ -542,91 +542,62 @@ fun ChatScreen(
             //
             // ONE controller. The rules:
             //
-            //  1) FOLLOW the bottom while the user is there. The content
-            //     is observed with snapshotFlow (the LAYOUT), not with
-            //     keys that change — the old code fired on every new
-            //     block of the timeline and SNAPPED to a position
-            //     (scrollToItem is instant), which is the "jump".
-            //  2) The LIVE values are read INSIDE the snapshotFlow. A
-            //     value captured OUTSIDE the flow is FROZEN for the whole
-            //     life of the effect (a LaunchedEffect keeps the closure
-            //     of the composition where it started): the old code
-            //     captured the sentinel index when the chat was EMPTY,
-            //     so the follow aimed at index 0 and the chat kept
-            //     jumping to the TOP.
-            //  3) The user's drag turns the follow off IMMEDIATELY (the
-            //     drag state is part of the observed flow, so the turn-off
-            //     does not wait for a layout change); scrolling back to
-            //     the bottom turns it on again.
-            //  4) The anchor is the SENTINEL (the empty item at the end
-            //     of the list): scrolling to it is the exact bottom,
-            //     whatever the height of the last bubble. Scrolling to
-            //     the last MESSAGE puts its TOP at the top of the
-            //     screen — the opposite of following a growing bubble.
-            //  5) The follow is INSTANT (scrollToItem): an animation
-            //     restarted on every chunk of text fights its own spring
-            //     and makes the view jump up and down.
-            //  6) A VIEWPORT change (the input field growing while the
-            //     user types) is not content growth: it must not scroll.
+            //  1) When the model STARTS an answer, the chat scrolls to
+            //     the TOP of that answer and STOPS there: the user reads
+            //     the text as it arrives (it grows downwards, the view
+            //     does not move). The old "follow" pushed the text up
+            //     while the user was reading it.
+            //  2) The user's drag always wins: while the finger is on
+            //     the screen the app does not scroll at all.
+            //  3) Opening a chat from the history still aligns with the
+            //     END of the last answer (the effect below).
+            //
+            // The LIVE values are read INSIDE the snapshotFlow: a value
+            // captured OUTSIDE the flow is FROZEN for the whole life of
+            // the effect (a LaunchedEffect keeps the closure of the
+            // composition where it started) — that bug made the follow
+            // aim at index 0 and the chat jumped to the TOP.
             val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
 
-            LaunchedEffect(listState) {
-                var stickToBottom = true
-                var previousCount = 0
-                var previousLastSize = 0
-                var previousViewport = 0
+            LaunchedEffect(session.chatId) {
+                // -1 = the first emission is the BASELINE (the chat was
+                // opened with this content): it is not a new message.
+                var previousMessages = -1
+                var previousAnswers = -1
                 snapshotFlow {
-                    val info = listState.layoutInfo
-                    val last = info.visibleItemsInfo.lastOrNull()
+                    val msgs = session.messages
+                    val answers = msgs.lastOrNull { it.role == "assistant" }
+                        ?.blocks?.count { it.kind == "answer" } ?: 0
                     listOf(
-                        info.totalItemsCount,
-                        last?.index ?: -1,
-                        last?.size ?: 0,
-                        info.viewportSize.height,
-                        info.viewportEndOffset,
-                        (last?.offset ?: 0) + (last?.size ?: 0),
+                        msgs.size,
+                        answers,
                         if (userIsDragging) 1 else 0,
-                        liveSentinel()
+                        listState.layoutInfo.totalItemsCount
                     )
                 }.collect { s ->
-                    val count = s[0]
-                    val lastIndex = s[1]
-                    val lastSize = s[2]
-                    val viewport = s[3]
-                    val viewportEnd = s[4]
-                    val lastBottom = s[5]
-                    val dragging = s[6] == 1
-                    val sentinel = s[7]
-                    val newItem = count != previousCount
-                    val grew = newItem || lastSize != previousLastSize
-                    val viewportChanged = viewport != previousViewport
-                    previousCount = count
-                    previousLastSize = lastSize
-                    previousViewport = viewport
-                    if (count == 0) return@collect
-                    // The user is dragging: the follow is OFF and the app
-                    // does not scroll (it would fight the finger).
-                    if (dragging) {
-                        stickToBottom = false
+                    val messageCount = s[0]
+                    val answerCount = s[1]
+                    val dragging = s[2] == 1
+                    val itemCount = s[3]
+                    if (previousMessages < 0) {
+                        previousMessages = messageCount
+                        previousAnswers = answerCount
                         return@collect
                     }
-                    // Back at the bottom? The follow is armed again.
-                    if (lastIndex >= count - 1 || lastBottom >= viewportEnd - 2) {
-                        stickToBottom = true
-                    }
-                    if (!stickToBottom) return@collect
-                    // Nothing changed: no scroll at all. This is what
-                    // stops the jumping — the old code scrolled on
-                    // EVERY new block, even when the view was already
-                    // at the bottom.
-                    if (!grew) return@collect
-                    // The viewport changed (the input grew while the user
-                    // types): that is not content growth — unless a new
-                    // item arrived, which must always be shown.
-                    if (viewportChanged && !newItem) return@collect
-                    // The sentinel is the LAST item: scrolling to it is
-                    // the exact bottom.
-                    listState.scrollToItem(sentinel.coerceAtMost(count - 1))
+                    val newMessage = messageCount != previousMessages
+                    val newAnswer = answerCount != previousAnswers
+                    previousMessages = messageCount
+                    previousAnswers = answerCount
+                    if (itemCount == 0) return@collect
+                    // The user's finger is on the screen: the app does
+                    // not scroll (it would fight the finger).
+                    if (dragging) return@collect
+                    if (!newMessage && !newAnswer) return@collect
+                    // The TOP of the last message: for the user's own
+                    // message it is the bottom of the conversation, for
+                    // the model it is the first line of the answer.
+                    val lastMessage = (messageCount - 1).coerceAtLeast(0)
+                    listState.scrollToItem(lastMessage.coerceAtMost(itemCount - 1))
                 }
             }
 

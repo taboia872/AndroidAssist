@@ -775,60 +775,69 @@ private fun FullscreenAssistant(
                 return session.messages.size + extras
             }
 
-            // The same controller as the main chat: follow the bottom,
-            // but only when the content actually grew, and never while
-            // the user is dragging.
+            // ---- auto-scroll ------------------------------------------------
+            //
+            // ONE controller. The rules:
+            //
+            //  1) When the model STARTS an answer, the chat scrolls to
+            //     the TOP of that answer and STOPS there: the user reads
+            //     the text as it arrives (it grows downwards, the view
+            //     does not move). The old "follow" pushed the text up
+            //     while the user was reading it.
+            //  2) The user's drag always wins: while the finger is on
+            //     the screen the app does not scroll at all.
+            //  3) Opening a chat from the history still aligns with the
+            //     END of the last answer (the effect below).
+            //
+            // The LIVE values are read INSIDE the snapshotFlow: a value
+            // captured OUTSIDE the flow is FROZEN for the whole life of
+            // the effect (a LaunchedEffect keeps the closure of the
+            // composition where it started) — that bug made the follow
+            // aim at index 0 and the chat jumped to the TOP.
             val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
-            LaunchedEffect(listState) {
-                var stickToBottom = true
-                var previousCount = 0
-                var previousLastSize = 0
-                var previousViewport = 0
+
+            LaunchedEffect(session.chatId) {
+                // -1 = the first emission is the BASELINE (the chat was
+                // opened with this content): it is not a new message.
+                var previousMessages = -1
+                var previousAnswers = -1
                 snapshotFlow {
-                    val info = listState.layoutInfo
-                    val last = info.visibleItemsInfo.lastOrNull()
+                    val msgs = session.messages
+                    val answers = msgs.lastOrNull { it.role == "assistant" }
+                        ?.blocks?.count { it.kind == "answer" } ?: 0
                     listOf(
-                        info.totalItemsCount,
-                        last?.index ?: -1,
-                        last?.size ?: 0,
-                        info.viewportSize.height,
-                        info.viewportEndOffset,
-                        (last?.offset ?: 0) + (last?.size ?: 0),
+                        msgs.size,
+                        answers,
                         if (userIsDragging) 1 else 0,
-                        liveSentinel()
+                        listState.layoutInfo.totalItemsCount
                     )
                 }.collect { s ->
-                    val count = s[0]
-                    val lastIndex = s[1]
-                    val lastSize = s[2]
-                    val viewport = s[3]
-                    val viewportEnd = s[4]
-                    val lastBottom = s[5]
-                    val dragging = s[6] == 1
-                    val sentinel = s[7]
-                    val newItem = count != previousCount
-                    val grew = newItem || lastSize != previousLastSize
-                    val viewportChanged = viewport != previousViewport
-                    previousCount = count
-                    previousLastSize = lastSize
-                    previousViewport = viewport
-                    if (count == 0) return@collect
-                    if (dragging) {
-                        stickToBottom = false
+                    val messageCount = s[0]
+                    val answerCount = s[1]
+                    val dragging = s[2] == 1
+                    val itemCount = s[3]
+                    if (previousMessages < 0) {
+                        previousMessages = messageCount
+                        previousAnswers = answerCount
                         return@collect
                     }
-                    if (lastIndex >= count - 1 || lastBottom >= viewportEnd - 2) {
-                        stickToBottom = true
-                    }
-                    if (!stickToBottom) return@collect
-                    if (!grew) return@collect
-                    // A viewport change (the input growing while the
-                    // user types) is not content growth — unless a new
-                    // item arrived, which must always be shown.
-                    if (viewportChanged && !newItem) return@collect
-                    listState.scrollToItem(sentinel.coerceAtMost(count - 1))
+                    val newMessage = messageCount != previousMessages
+                    val newAnswer = answerCount != previousAnswers
+                    previousMessages = messageCount
+                    previousAnswers = answerCount
+                    if (itemCount == 0) return@collect
+                    // The user's finger is on the screen: the app does
+                    // not scroll (it would fight the finger).
+                    if (dragging) return@collect
+                    if (!newMessage && !newAnswer) return@collect
+                    // The TOP of the last message: for the user's own
+                    // message it is the bottom of the conversation, for
+                    // the model it is the first line of the answer.
+                    val lastMessage = (messageCount - 1).coerceAtLeast(0)
+                    listState.scrollToItem(lastMessage.coerceAtMost(itemCount - 1))
                 }
             }
+
             // Opening a chat: align with the last answer, instantly.
             // Wait for the MESSAGES to be in the list AND for the items to
             // be MEASURED: a scrollToItem before the first measurement
