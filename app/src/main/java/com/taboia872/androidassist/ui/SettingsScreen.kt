@@ -240,7 +240,11 @@ private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    /** Opens the scheduled tasks (the MainActivity's screen state). */
+    onOpenTasks: (() -> Unit)? = null
+) {
     val cfg by AppSettings.config.collectAsState()
     val provider = LlmProviders.byId(cfg.providerId)
     val context = LocalContext.current
@@ -1040,6 +1044,16 @@ fun SettingsScreen(onBack: () -> Unit) {
                             onClick = { showLanguageDialog = true }
                         )
                     }
+                    if (onOpenTasks != null) {
+                        SettingsSection(title = Strings.t(Strings.tasksTitle)) {
+                            SettingsItem(
+                                icon = Icons.Default.Schedule,
+                                title = Strings.t(Strings.tasksTitle),
+                                subtitle = Strings.t(Strings.taskToolsHint),
+                                onClick = { onOpenTasks() }
+                            )
+                        }
+                    }
                     SettingsSection(title = Strings.t(Strings.notificationsSection)) {
                         SettingsItemWithSwitch(
                             icon = Icons.Default.Notifications,
@@ -1193,7 +1207,18 @@ fun SettingsScreen(onBack: () -> Unit) {
             keySlot = provider.id,
             currentModel = cfg.model,
             onModelSelected = { modelId ->
-                AppSettings.update { it.copy(model = modelId) }
+                AppSettings.update { c ->
+                    c.copy(
+                        model = modelId,
+                        // Remember the cloud model: it is the fallback of
+                        // a scheduled task when the local server is down.
+                        lastCloudModel = if (c.providerId == LlmProviders.LOCAL.id) {
+                            c.lastCloudModel
+                        } else {
+                            modelId
+                        }
+                    )
+                }
                 showModelDialog = false
             },
             onDismiss = { showModelDialog = false }

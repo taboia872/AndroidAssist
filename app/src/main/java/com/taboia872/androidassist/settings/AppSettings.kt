@@ -159,7 +159,13 @@ data class AppConfig(
      * default (lock screen privacy): the notification only says "the
      * model answered".
      */
-    val showReplyInNotification: Boolean = false
+    val showReplyInNotification: Boolean = false,
+    /**
+     * The last model used with a CLOUD provider — the fallback of a
+     * scheduled task when the local llama.cpp server is down (the
+     * configured model is a local one and does not exist in the cloud).
+     */
+    val lastCloudModel: String = ""
 ) {
     /**
      * The active provider's keys (ALL of them). Empty = no key saved.
@@ -311,6 +317,7 @@ object AppSettings {
     private const val K_WORKSPACE_FOLDER = "workspace_folder_uri"
     private const val K_CONTACTS_PERMISSION = "contacts_permission_granted"
     private const val K_SHOW_REPLY_IN_NOTIFICATION = "show_reply_in_notification"
+    private const val K_LAST_CLOUD_MODEL = "last_cloud_model"
     private const val K_PERSONAS = "personas_json"
     private const val K_LEGACY_KEY = "api_key" // pre per-provider layout
 
@@ -440,6 +447,7 @@ object AppSettings {
             workspaceFolderUri = p.getString(K_WORKSPACE_FOLDER, "") ?: "",
             contactsPermissionGranted = p.getBoolean(K_CONTACTS_PERMISSION, false),
             showReplyInNotification = p.getBoolean(K_SHOW_REPLY_IN_NOTIFICATION, false),
+            lastCloudModel = p.getString(K_LAST_CLOUD_MODEL, "") ?: "",
         )
     }
 
@@ -489,6 +497,7 @@ object AppSettings {
             .putString(K_WORKSPACE_FOLDER, next.workspaceFolderUri)
             .putBoolean(K_CONTACTS_PERMISSION, next.contactsPermissionGranted)
             .putBoolean(K_SHOW_REPLY_IN_NOTIFICATION, next.showReplyInNotification)
+            .putString(K_LAST_CLOUD_MODEL, next.lastCloudModel)
             .apply()
         _config.value = next
     }

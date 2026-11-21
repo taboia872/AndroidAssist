@@ -26,6 +26,7 @@ import com.taboia872.androidassist.ui.ChatHistoryScreen
 import com.taboia872.androidassist.ui.ChatScreen
 import com.taboia872.androidassist.ui.ChatSessions
 import com.taboia872.androidassist.ui.SettingsScreen
+import com.taboia872.androidassist.ui.TasksScreen
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
 import com.taboia872.androidassist.tts.TtsManager
 
@@ -71,7 +72,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             var screen by remember { mutableStateOf("chat") }
-            var resumeChatId by remember { mutableStateOf<String?>(null) }
+            // A notification of a finished task opens its conversation.
+            var resumeChatId by remember {
+                mutableStateOf(
+                    intent?.getStringExtra(
+                        com.taboia872.androidassist.tasks.TaskRunnerService.EXTRA_OPEN_CHAT
+                    )
+                )
+            }
             // Swipe direction on the chat: dragging RIGHT->LEFT opens the
             // Settings (the panel then slides in FROM THE RIGHT, dragging
             // the chat to the left with it — like pulling one screen over
@@ -140,7 +148,11 @@ class MainActivity : ComponentActivity() {
                 ) { currentScreen ->
                     Box(modifier = if (currentScreen == "chat") chatSwipeModifier else Modifier.fillMaxSize()) {
                         when (currentScreen) {
-                            "settings" -> SettingsScreen(onBack = { screen = "chat" })
+                            "settings" -> SettingsScreen(
+                                onBack = { screen = "chat" },
+                                onOpenTasks = { screen = "tasks" }
+                            )
+                            "tasks" -> TasksScreen(onBack = { screen = "chat" })
                             "history" -> ChatHistoryScreen(
                                 onChatSelected = { chatId ->
                                     resumeChatId = chatId

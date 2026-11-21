@@ -313,13 +313,19 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
          * A scheduled task passes its own list: the tools are chosen
          * when the task is created.
          */
-        allowedTools: List<String>? = null
+        allowedTools: List<String>? = null,
+        /**
+         * A different configuration for THIS turn (the scheduled task
+         * falls back to the cloud when the local server is down).
+         */
+        cfgOverride: com.taboia872.androidassist.settings.AppConfig? = null
     ) {
         val q = query.trim()
         if (q.isEmpty() && imageBase64 == null) return
         if (busy) return
         busy = true
         turnAllowedTools = allowedTools
+        turnConfigOverride = cfgOverride
         turnMsgIdx = -1
         toolExchanges.clear()
         status = Strings.t(Strings.thinking)
@@ -705,7 +711,8 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             toolsEnabled = toolsEnabled,
             toolExchanges = this.toolExchanges,
             allowWebSearch = allowWebSearch,
-            allowedTools = turnAllowedTools
+            allowedTools = turnAllowedTools,
+            cfgOverride = turnConfigOverride
         ).collect { event ->
             when (event) {
                 is StreamEvent.Reasoning -> {
@@ -757,6 +764,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * task was created.
      */
     private var turnAllowedTools: List<String>? = null
+
+    /** The configuration of the CURRENT turn (null = the live one). */
+    private var turnConfigOverride: com.taboia872.androidassist.settings.AppConfig? = null
 
     /**
      * The background notification is skipped when the turn belongs to a

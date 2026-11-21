@@ -310,9 +310,14 @@ object LlmClient {
          * "web_search" + "memory"). Null = the user's own settings. A
          * scheduled task passes its own list (chosen at creation time).
          */
-        allowedTools: List<String>? = null
+        allowedTools: List<String>? = null,
+        /**
+         * A different configuration for THIS request (the scheduled
+         * task falls back to the cloud when the local server is down).
+         */
+        cfgOverride: com.taboia872.androidassist.settings.AppConfig? = null
     ): Flow<StreamEvent> = flow {
-        val cfg = AppSettings.config.value
+        val cfg = cfgOverride ?: AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
             emit(StreamEvent.Error("No base URL configured — open Settings."))
             return@flow

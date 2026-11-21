@@ -10,6 +10,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import com.taboia872.androidassist.MainActivity
+import com.taboia872.androidassist.llm.LocalServer
+import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.tools.Workspace
 import com.taboia872.androidassist.ui.ChatSession
@@ -64,7 +66,19 @@ class TaskRunnerService : Service() {
         // The session would post its own "the model answered" notification:
         // the task has its own, with the result.
         session.suppressBackgroundNotification = true
-        session.send(task.prompt, allowedTools = task.allowedTools)
+        // The local server down? The task runs with the CLOUD model
+        // (the user asked for this fallback).
+        val cfg = AppSettings.config.value
+        val override = if (cfg.providerId == LlmProviders.LOCAL.id &&
+            !LocalServer.isUp(cfg.baseUrl)
+        ) {
+            cloudFallback(cfg)
+        } else null
+        session.send(
+            task.prompt,
+            allowedTools = task.allowedTools,
+            cfgOverride = override
+        )
         // The session runs the turn in its own scope: wait for it to end.
         var waited = 0
         while (session.busy && waited < MAX_TURN_MS) {
@@ -83,6 +97,27 @@ class TaskRunnerService : Service() {
         // Arm the next run (the "once" mode has none).
         TaskScheduler.schedule(app, task)
         notifyResult(app, task, answer)
+    }
+
+    /**
+     * The cloud configuration to use when the local server is down: the
+     * first cloud provider with a key and the last model used with one.
+     */
+    private fun cloudFallback(
+        cfg: com.taboia872.androidassist.settings.AppConfig
+    ): com.taboia872.androidassist.settings.AppConfig? {
+        if (cfg.lastCloudModel.isBlank()) return null
+        val provider = LlmProviders.ALL.firstOrNull { p ->
+            p.id != LlmProviders.LOCAL.id &&
+                p.id != "custom" &&
+                p.defaultBaseUrl.isNotBlank() &&
+                AppSettings.keysFor(p.id).isNotEmpty()
+        } ?: return null
+        return cfg.copy(
+            providerId = provider.id,
+            baseUrl = provider.defaultBaseUrl,
+            model = cfg.lastCloudModel
+        )
     }
 
     /** The text of the last answer of the session. */
@@ -134,7 +169,7 @@ class TaskRunnerService : Service() {
                 )
             )
         }
-        val n = build(CHANNEL_RUN, "AndroidAssist", text)
+        val n = builder(CHANNEL_RUN, "AndroidAssist", text).build()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -168,16 +203,17 @@ class TaskRunnerService : Service() {
             context, task.id.hashCode(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val n = build(CHANNEL_RESULT, task.title.ifBlank { "Tarefa concluída" }, preview)
+        val n = builder(CHANNEL_RESULT, task.title.ifBlank { "Tarefa concluída" }, preview)
             .setContentIntent(pending)
             .setAutoCancel(true)
+            .build()
         try {
             manager.notify(NOTIFICATION_RESULT, n)
         } catch (e: SecurityException) {
         }
     }
 
-    private fun build(channelId: String, title: String, text: String): Notification {
+    private fun builder(channelId: String, title: String, text: String): Notification.Builder {
         val b = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, channelId)
         } else {
@@ -188,7 +224,6 @@ class TaskRunnerService : Service() {
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)
-            .build()
     }
 
     companion object {
