@@ -304,7 +304,13 @@ object LlmClient {
         systemPrompt: String,
         toolsEnabled: Boolean = false,
         toolExchanges: List<ToolExchange> = emptyList(),
-        allowWebSearch: Boolean = true
+        allowWebSearch: Boolean = true,
+        /**
+         * The tools THIS request may declare (the ability ids +
+         * "web_search" + "memory"). Null = the user's own settings. A
+         * scheduled task passes its own list (chosen at creation time).
+         */
+        allowedTools: List<String>? = null
     ): Flow<StreamEvent> = flow {
         val cfg = AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
@@ -339,7 +345,9 @@ object LlmClient {
             if (toolsEnabled) {
                 // Each tool group is INDEPENDENT: turning the web search off
                 // must NOT hide the Android abilities, and vice-versa.
-                if (allowWebSearch && AppSettings.config.value.webSearchEnabled) {
+                if (allowWebSearch && AppSettings.config.value.webSearchEnabled &&
+                    (allowedTools == null || allowedTools.contains("web_search"))
+                ) {
                     specs.put(tool(
                         "web_search",
                         "Search the web for current information (news, prices, weather, " +
@@ -350,10 +358,14 @@ object LlmClient {
                 }
                 // Android abilities — ONE BY ONE (the user can switch each).
                 deviceToolSpecs().forEach { (ability, spec) ->
-                    if (AppSettings.abilityEnabled(ability)) specs.put(spec)
+                    if (AppSettings.abilityEnabled(ability) &&
+                        (allowedTools == null || allowedTools.contains(ability))
+                    ) specs.put(spec)
                 }
                 // Memory tools — their own group.
-                if (AppSettings.config.value.memoryToolsEnabled) {
+                if (AppSettings.config.value.memoryToolsEnabled &&
+                    (allowedTools == null || allowedTools.contains("memory"))
+                ) {
                     memoryToolSpecs().forEach { specs.put(it) }
                 }
                 for (i in 0 until specs.length()) {

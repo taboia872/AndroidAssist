@@ -306,12 +306,20 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
 
     fun send(
         query: String,
-        imageBase64: String? = null
+        imageBase64: String? = null,
+        /**
+         * The tools THIS turn may use (the ability ids + "web_search" +
+         * "memory"). Null = the user's own settings (the normal chat).
+         * A scheduled task passes its own list: the tools are chosen
+         * when the task is created.
+         */
+        allowedTools: List<String>? = null
     ) {
         val q = query.trim()
         if (q.isEmpty() && imageBase64 == null) return
         if (busy) return
         busy = true
+        turnAllowedTools = allowedTools
         turnMsgIdx = -1
         toolExchanges.clear()
         status = Strings.t(Strings.thinking)
@@ -696,7 +704,8 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             basePrompt,
             toolsEnabled = toolsEnabled,
             toolExchanges = this.toolExchanges,
-            allowWebSearch = allowWebSearch
+            allowWebSearch = allowWebSearch,
+            allowedTools = turnAllowedTools
         ).collect { event ->
             when (event) {
                 is StreamEvent.Reasoning -> {
@@ -742,8 +751,22 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return if (text.length <= 180) text else text.take(177) + "..."
     }
 
+    /**
+     * The tools of the CURRENT turn (null = the user's settings). A
+     * scheduled task restricts them to what the user allowed when the
+     * task was created.
+     */
+    private var turnAllowedTools: List<String>? = null
+
+    /**
+     * The background notification is skipped when the turn belongs to a
+     * scheduled task (the task posts its own, with the result).
+     */
+    var suppressBackgroundNotification: Boolean = false
+
     /** "The model answered" notification (no content) when backgrounded. */
     private fun notifyAnswered() {
+        if (suppressBackgroundNotification) return
         val c = ctx ?: return
         val notificationManager =
             c.getSystemService(android.content.Context.NOTIFICATION_SERVICE)

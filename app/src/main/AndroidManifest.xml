@@ -17,6 +17,15 @@
     <!-- send_message: resolve the contact by name in the agenda
          (runtime permission, asked only when the user enables it) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Scheduled tasks: the alarm wakes the app, the reboot re-arms
+         the alarms, and the task runs in a foreground service (the
+         exact alarm is also what allows starting it from the
+         background on Android 12+). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- open_map resolves geo: URIs; visible map apps are queried at runtime -->
 
 
@@ -94,5 +103,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <!-- Scheduled tasks -->
+        <service
+            android:name=".tasks.TaskRunnerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".tasks.TaskReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
