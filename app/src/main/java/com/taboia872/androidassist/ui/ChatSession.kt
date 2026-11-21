@@ -726,6 +726,22 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return callId
     }
 
+    /**
+     * A short preview of the last answer (for the notification): the
+     * text of the last "answer" block, cleaned and cut.
+     */
+    private fun replyPreview(): String? {
+        val last = messages.lastOrNull { it.role == "assistant" } ?: return null
+        val text = last.blocks
+            .filter { it.kind == "answer" }
+            .map { it.text }
+            .joinToString(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (text.isBlank()) return null
+        return if (text.length <= 180) text else text.take(177) + "..."
+    }
+
     /** "The model answered" notification (no content) when backgrounded. */
     private fun notifyAnswered() {
         val c = ctx ?: return
@@ -747,8 +763,17 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         )
         val title = com.taboia872.androidassist.i18n.Strings.t(
             com.taboia872.androidassist.i18n.Strings.modelAnsweredTitle)
-        val text = com.taboia872.androidassist.i18n.Strings.t(
-            com.taboia872.androidassist.i18n.Strings.modelAnsweredBody)
+        // The CONTENT of the reply is opt-in (lock screen privacy): the
+        // user decides in the Settings whether the notification shows
+        // what the model answered or only that it answered.
+        val text = if (com.taboia872.androidassist.settings.AppSettings.config.value
+                .showReplyInNotification) {
+            replyPreview() ?: com.taboia872.androidassist.i18n.Strings.t(
+                com.taboia872.androidassist.i18n.Strings.modelAnsweredBody)
+        } else {
+            com.taboia872.androidassist.i18n.Strings.t(
+                com.taboia872.androidassist.i18n.Strings.modelAnsweredBody)
+        }
         val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             android.app.Notification.Builder(c, channelId)
         } else {

@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Translate
@@ -1037,6 +1038,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 else -> Strings.t(Strings.systemDefault)
                             },
                             onClick = { showLanguageDialog = true }
+                        )
+                    }
+                    SettingsSection(title = Strings.t(Strings.notificationsSection)) {
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Notifications,
+                            title = Strings.t(Strings.replyInNotification),
+                            subtitle = Strings.t(Strings.replyInNotificationSub),
+                            checked = cfg.showReplyInNotification,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(showReplyInNotification = on) }
+                            }
                         )
                     }
                     SettingsSection(title = Strings.t(Strings.assistantSection)) {
