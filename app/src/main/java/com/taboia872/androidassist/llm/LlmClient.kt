@@ -72,6 +72,15 @@ object LlmClient {
     // ----------------------------------------------------------- tools
 
     /** Simple tool spec builder. */
+    /**
+     * Is this a LOCAL endpoint (the llama.cpp server on the phone or on
+     * the LAN)? The local model needs a much longer read timeout.
+     */
+    private fun isLocalEndpoint(baseUrl: String): Boolean {
+        val u = baseUrl.lowercase()
+        return u.contains("127.0.0.1") || u.contains("localhost") || u.contains("0.0.0.0")
+    }
+
     private fun tool(
         name: String,
         description: String,
@@ -447,7 +456,10 @@ object LlmClient {
             val c = Net.open("${cfg.baseUrl.trimEnd('/')}/chat/completions").apply {
                 requestMethod = "POST"
                 connectTimeout = 30_000
-                readTimeout = 120_000
+                // A LOCAL model (llama.cpp no celular) responde bem mais
+                // devagar que a nuvem — 5 a 10 tok/s. Com 120 s o app
+                // cortava a resposta no meio.
+                readTimeout = if (isLocalEndpoint(cfg.baseUrl)) 300_000 else 120_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")

@@ -19,9 +19,15 @@ object LlmProviders {
     val GROQ = LlmProvider("groq", "Groq", "https://api.groq.com/openai/v1", true, "Free at console.groq.com/keys")
     val OLLAMA_CLOUD = LlmProvider("ollama", "Ollama Cloud", "https://ollama.com/v1", true, "Create at ollama.com/settings/keys")
     val NVIDIA = LlmProvider("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", true, "Create at build.nvidia.com/settings")
+    /**
+     * The llama.cpp server running ON THIS PHONE (the router in Termux):
+     * a multi-model OpenAI-compatible server. No key, no account, no
+     * internet — the assistant runs on the device.
+     */
+    val LOCAL = LlmProvider("local", "Local (llama.cpp)", "http://127.0.0.1:8080/v1", false, "")
     val CUSTOM = LlmProvider("custom", "Custom (e.g. Ollama on PC)", "", false, "")
 
-    val ALL = listOf(OPENROUTER, GROQ, OLLAMA_CLOUD, NVIDIA, CUSTOM)
+    val ALL = listOf(OPENROUTER, GROQ, OLLAMA_CLOUD, NVIDIA, LOCAL, CUSTOM)
 
     fun byId(id: String): LlmProvider = ALL.firstOrNull { it.id == id } ?: CUSTOM
 }

@@ -131,6 +131,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.taboia872.androidassist.llm.KeyRotation
+import com.taboia872.androidassist.llm.LocalServer
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.llm.ModelCatalog
 import com.taboia872.androidassist.memory.MemoryStore
@@ -252,6 +253,9 @@ fun SettingsScreen(onBack: () -> Unit) {
     val currentOnBack by rememberUpdatedState(onBack)
 
     var showProviderDialog by remember { mutableStateOf(false) }
+    // The LOCAL llama.cpp server: is it up? (null = not the local
+    // provider, or not checked yet)
+    var localServerUp by remember { mutableStateOf<Boolean?>(null) }
     var showKeyDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
@@ -447,11 +451,29 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
 
                 if (settingsCategory == SettingsCategory.AI) {
+                    // Probe the local server whenever the provider (or
+                    // its address) changes: the user starts it with
+                    // ./router.sh in Termux.
+                    LaunchedEffect(cfg.providerId, cfg.baseUrl) {
+                        localServerUp = if (provider.id == LlmProviders.LOCAL.id &&
+                            cfg.baseUrl.isNotBlank()
+                        ) {
+                            LocalServer.isUp(cfg.baseUrl)
+                        } else {
+                            null
+                        }
+                    }
                     SettingsSection(title = Strings.t(Strings.apiConfig)) {
                         SettingsItem(
                             icon = Icons.Default.Cloud,
                             title = Strings.t(Strings.cloudProvider),
-                            subtitle = provider.displayName,
+                            subtitle = when (localServerUp) {
+                                true -> provider.displayName + " — " +
+                                    Strings.t(Strings.localServerUp)
+                                false -> provider.displayName + " — " +
+                                    Strings.t(Strings.localServerDown)
+                                else -> provider.displayName
+                            },
                             onClick = { showProviderDialog = true }
                         )
                         SettingsItem(
