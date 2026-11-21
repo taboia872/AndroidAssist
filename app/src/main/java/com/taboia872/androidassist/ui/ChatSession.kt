@@ -350,7 +350,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
                 "HH:mm", java.util.Locale.getDefault()
             ).format(now)
             val zone = java.util.TimeZone.getDefault().id
-            var basePrompt = AppSettings.config.value.systemPrompt +
+            // A persona da tarefa (o seu prompt, o seu modelo): o
+            // override de configuracao do turno manda no system prompt.
+            val turnCfg = turnConfigOverride ?: AppSettings.config.value
+            var basePrompt = turnCfg.systemPrompt +
                 "\n\nCurrent date: $today.\nCurrent time: $clock ($zone)."
             if (AppSettings.config.value.noThink) {
                 basePrompt += "\n\nDo NOT produce any reasoning or thinking " +

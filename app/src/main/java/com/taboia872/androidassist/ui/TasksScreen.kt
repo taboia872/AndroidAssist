@@ -17,7 +17,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -45,9 +50,13 @@ import androidx.compose.ui.unit.dp
 import com.taboia872.androidassist.i18n.Strings
 import com.taboia872.androidassist.tasks.ScheduledTask
 import com.taboia872.androidassist.tasks.TaskScheduler
+import com.taboia872.androidassist.tasks.TaskRunnerService
 import com.taboia872.androidassist.tasks.TaskStore
+import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.tools.ToolAbility
 import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.TimeZone
 import java.util.Date
 import java.util.Locale
 
@@ -147,6 +156,7 @@ fun TasksScreen(onBack: () -> Unit) {
                         val task = tasks[i]
                         TaskRow(
                             task = task,
+                            onRunNow = { TaskRunnerService.start(context, task.id) },
                             onToggle = { on ->
                                 val updated = task.copy(enabled = on)
                                 TaskStore.upsert(context, updated)
@@ -180,6 +190,7 @@ fun TasksScreen(onBack: () -> Unit) {
 @Composable
 private fun TaskRow(
     task: ScheduledTask,
+    onRunNow: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit
@@ -202,6 +213,12 @@ private fun TaskRow(
                     append(" ")
                     append(task.timeLabel())
                     if (nextLabel.isNotBlank()) append(" — ").append(nextLabel)
+                    val persona = task.personaId.takeIf { it.isNotBlank() }
+                        ?.let { id -> AppSettings.personas().firstOrNull { it.id == id } }
+                    if (persona != null) {
+                        append(" — ")
+                        append(persona.name)
+                    }
                     if (task.lastResult.isNotBlank()) {
                         append("\n")
                         append(task.lastResult)
@@ -215,8 +232,13 @@ private fun TaskRow(
             Switch(checked = task.enabled, onCheckedChange = onToggle)
         },
         trailingContent = {
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, Strings.t(Strings.taskDelete))
+            Row {
+                IconButton(onClick = onRunNow) {
+                    Icon(Icons.Default.PlayArrow, Strings.t(Strings.taskRunNow))
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, Strings.t(Strings.taskDelete))
+                }
             }
         },
         modifier = Modifier.clickable(onClick = onClick)
@@ -243,8 +265,12 @@ private fun TaskEditor(
     var minute by remember { mutableStateOf(initial?.minute ?: 0) }
     var days by remember { mutableStateOf(initial?.daysOfWeek ?: listOf(2)) }
     var tools by remember { mutableStateOf(initial?.allowedTools ?: emptyList()) }
+    var onceAt by remember { mutableStateOf(initial?.onceAt ?: 0L) }
+    var personaId by remember { mutableStateOf(initial?.personaId ?: "") }
     var showHour by remember { mutableStateOf(false) }
     var showMinute by remember { mutableStateOf(false) }
+    var showDate by remember { mutableStateOf(false) }
+    var showPersona by remember { mutableStateOf(false) }
 
     val toolOptions = listOf(
         "web_search" to Strings.t(Strings.webSearchSection),
@@ -265,6 +291,76 @@ private fun TaskEditor(
         java.text.DateFormatSymbols.getInstance().shortWeekdays
     }
 
+    if (showDate) {
+        val dateState = rememberDatePickerState(
+            initialSelectedDateMillis = datePickerInitialMillis(onceAt)
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    onceAt = datePickerToLocal(dateState.selectedDateMillis, hour, minute)
+                    showDate = false
+                }) { Text(Strings.t(Strings.save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDate = false }) { Text(Strings.t(Strings.cancel)) }
+            }
+        ) {
+            DatePicker(state = dateState)
+        }
+    }
+    if (showPersona) {
+        AlertDialog(
+            onDismissRequest = { showPersona = false },
+            title = { Text(Strings.t(Strings.taskPersona)) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                personaId = ""
+                                showPersona = false
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = personaId.isBlank(),
+                            onClick = {
+                                personaId = ""
+                                showPersona = false
+                            }
+                        )
+                        Text(Strings.t(Strings.taskPersonaDefault))
+                    }
+                    AppSettings.personas().forEach { p ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    personaId = p.id
+                                    showPersona = false
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = personaId == p.id,
+                                onClick = {
+                                    personaId = p.id
+                                    showPersona = false
+                                }
+                            )
+                            Text(p.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPersona = false }) { Text(Strings.t(Strings.ok)) }
+            }
+        )
+    }
     if (showHour) {
         NumberPickerDialog(
             title = Strings.t(Strings.taskTime),
@@ -277,7 +373,7 @@ private fun TaskEditor(
     if (showMinute) {
         NumberPickerDialog(
             title = Strings.t(Strings.taskTime),
-            options = (0..55 step 5).map { it to String.format("%02d min", it) },
+            options = (0..59).map { it to String.format("%02d min", it) },
             current = minute,
             onSelected = { minute = it; showMinute = false },
             onDismiss = { showMinute = false }
@@ -309,7 +405,9 @@ private fun TaskEditor(
                                 hour = hour,
                                 minute = minute,
                                 daysOfWeek = days,
-                                allowedTools = tools
+                                allowedTools = tools,
+                                onceAt = onceAt,
+                                personaId = personaId
                             )
                         )
                     }) {
@@ -380,17 +478,57 @@ private fun TaskEditor(
                     style = MaterialTheme.typography.titleSmall
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        String.format("%02d:%02d", hour, minute),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.clickable { showHour = true }
-                    )
+                    TimeField(String.format("%02d", hour)) { showHour = true }
+                    Text(":", style = MaterialTheme.typography.titleMedium)
+                    TimeField(String.format("%02d", minute)) { showMinute = true }
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
+
+            // The DATE — only for the "once" mode (the daily/weekly ones
+            // repeat by themselves).
+            if (repeatMode == ScheduledTask.REPEAT_ONCE) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        Strings.t(Strings.taskDate),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    TimeField(
+                        if (onceAt > 0) {
+                            SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                                .format(Date(onceAt))
+                        } else {
+                            Strings.t(Strings.taskDatePick)
+                        }
+                    ) { showDate = true }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // The PERSONA: its prompt, its model, its provider.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    Strings.t(Strings.taskPersona),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                TimeField(
+                    personaId.takeIf { it.isNotBlank() }
+                        ?.let { id -> AppSettings.personas().firstOrNull { it.id == id }?.name }
+                        ?: Strings.t(Strings.taskPersonaDefault)
+                ) { showPersona = true }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
 
             if (repeatMode == ScheduledTask.REPEAT_WEEKLY) {
                 Text(
@@ -457,4 +595,52 @@ private fun TaskEditor(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+}
+
+/** A tappable field that shows a value (the hour, the minute, a date). */
+@Composable
+private fun TimeField(value: String, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Text(
+            value,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.titleMedium
+        )
+    }
+}
+
+/**
+ * The UTC midnight of a day — what the Material3 DatePicker expects as
+ * its selection.
+ */
+private fun datePickerInitialMillis(millis: Long): Long {
+    val cal = Calendar.getInstance()
+    cal.timeInMillis = if (millis > 0) millis else System.currentTimeMillis()
+    val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+    utc.clear()
+    utc.set(
+        cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+    )
+    return utc.timeInMillis
+}
+
+/**
+ * The selected day (the DatePicker returns the UTC midnight) + the
+ * chosen time -> the local moment of the task.
+ */
+private fun datePickerToLocal(selected: Long, hour: Int, minute: Int): Long {
+    if (selected <= 0) return 0L
+    val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+    utc.timeInMillis = selected
+    val local = Calendar.getInstance()
+    local.clear()
+    local.set(
+        utc.get(Calendar.YEAR), utc.get(Calendar.MONTH), utc.get(Calendar.DAY_OF_MONTH),
+        hour, minute, 0
+    )
+    return local.timeInMillis
 }

@@ -33,6 +33,11 @@ data class ScheduledTask(
     val daysOfWeek: List<Int> = emptyList(),
     /** For "once": the exact moment (epoch millis). */
     val onceAt: Long = 0L,
+    /**
+     * The persona the task uses (its prompt, its model, its provider).
+     * Empty = the app's current settings.
+     */
+    val personaId: String = "",
     val enabled: Boolean = true,
     /** When it last ran (epoch millis). */
     val lastRunAt: Long = 0L,
@@ -102,6 +107,7 @@ data class ScheduledTask(
         put("minute", minute)
         put("daysOfWeek", JSONArray(daysOfWeek))
         put("onceAt", onceAt)
+        put("personaId", personaId)
         put("enabled", enabled)
         put("lastRunAt", lastRunAt)
         put("lastResult", lastResult)
@@ -124,6 +130,7 @@ data class ScheduledTask(
                 minute = o.optInt("minute", 0),
                 daysOfWeek = o.optJSONArray("daysOfWeek").toIntList(),
                 onceAt = o.optLong("onceAt", 0L),
+                personaId = o.optString("personaId", ""),
                 enabled = o.optBoolean("enabled", true),
                 lastRunAt = o.optLong("lastRunAt", 0L),
                 lastResult = o.optString("lastResult")

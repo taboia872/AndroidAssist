@@ -66,14 +66,26 @@ class TaskRunnerService : Service() {
         // The session would post its own "the model answered" notification:
         // the task has its own, with the result.
         session.suppressBackgroundNotification = true
+        // The PERSONA of the task (its prompt, its model, its provider)
+        // — or the app's current settings when the task has none.
+        val cfg = AppSettings.config.value
+        val persona = task.personaId.takeIf { it.isNotBlank() }
+            ?.let { id -> AppSettings.personas().firstOrNull { it.id == id } }
+        val base = cfg.copy(
+            systemPrompt = persona?.systemPrompt ?: cfg.systemPrompt,
+            providerId = persona?.providerId ?: cfg.providerId,
+            baseUrl = persona?.baseUrl ?: cfg.baseUrl,
+            model = persona?.model ?: cfg.model,
+            webSearchEnabled = persona?.webSearchEnabled ?: cfg.webSearchEnabled,
+            searchEngine = persona?.searchEngine ?: cfg.searchEngine
+        )
         // The local server down? The task runs with the CLOUD model
         // (the user asked for this fallback).
-        val cfg = AppSettings.config.value
-        val override = if (cfg.providerId == LlmProviders.LOCAL.id &&
-            !LocalServer.isUp(cfg.baseUrl)
+        val override = if (base.providerId == LlmProviders.LOCAL.id &&
+            !LocalServer.isUp(base.baseUrl)
         ) {
-            cloudFallback(cfg)
-        } else null
+            cloudFallback(base)
+        } else base
         session.send(
             task.prompt,
             allowedTools = task.allowedTools,
@@ -146,6 +158,7 @@ class TaskRunnerService : Service() {
             append("\n")
             append("- Tarefa: ${task.prompt}\n")
             append("- Modelo: ${AppSettings.config.value.model.ifBlank { "(padrão)" }}\n")
+            append("- Persona: ${task.personaId.ifBlank { "(padrão)" }}\n")
             append(
                 "- Ferramentas: " +
                     (if (task.allowedTools.isEmpty()) "nenhuma"
