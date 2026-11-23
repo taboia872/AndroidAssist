@@ -32,7 +32,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 | Pasta apontada + tools de arquivo | ✅ feito (`493e508` + `359a4dd`) — inclusive subpastas |
 | Pasta de backup dentro da pasta apontada | ✅ feito (`96a8c57`) |
 | Agendamento de tarefa (executor em background) | ✅ **FEITO** (`4061671` + `bdfe4b8`, 2026-11-21) — agenda, FGS, `.md` na pasta, notificação; **em teste pelo Juliano** |
-| **O modelo agenda as próprias tarefas** | ❌ não existe — **PRÓXIMO PASSO** (depende das tarefas passarem no teste) |
+| **O modelo agenda as próprias tarefas** | ✅ **FEITO** (`977cc83` + `c97fa05`) — `schedule_task`, `list_tasks`, `cancel_task` (ability com toggle próprio) |
 | Página HTML gerada + link no chat | ❌ não existe (nenhum `WebView` no app) |
 | Modelo por tarefa / pipeline imagem→principal | ❌ não existe (`AppConfig` tem UM `model`) |
 | Tocar mídia (música/arquivo/YouTube) | ❌ **REMOVIDO** (2026-11-19, por decisão do Juliano: o assistente não reproduz música) |
@@ -50,7 +50,7 @@ O que **NÃO** existe ainda (verificado no código em 2026-11-16):
 | 3 | (d) `play_media` — tocar música | baixo | alto | ❌ **CANCELADO** (removido em 2026-11-19) |
 | 4 | (c) `modelVision` — pipeline de imagem | médio | médio | pendente |
 | 5 | (b) Agendamento de tarefas | alto | alto | ✅ **FEITO** (`4061671` + `bdfe4b8`) — em teste |
-| 6 | **(f) O modelo agenda as próprias tarefas** | médio | alto | **PRÓXIMO PASSO** (depende do teste das tarefas) |
+| 6 | **(f) O modelo agenda as próprias tarefas** | médio | alto | ✅ **FEITO** (`977cc83` + `c97fa05`) — em teste |
 
 ### Por que (a) e (e) juntas
 
@@ -162,7 +162,7 @@ O resumo das notícias em si é fácil — a tool `web_search` já existe. O dif
 
 ---
 
-### (f) O modelo agenda as próprias tarefas — PRÓXIMO PASSO
+### (f) O modelo agenda as próprias tarefas — FEITO (2026-11-21)
 
 **Pedido do Juliano (2026-11-21):** depois que as tarefas agendadas
 funcionarem, o próximo passo e o modelo poder criar as proprias
@@ -174,7 +174,10 @@ tarefas pelo chat. O exemplo dele:
 O que ja existe (base pronta): o modelo (`tasks/ScheduledTask.kt`), a
 persistencia (`TaskStore`), o agendamento (`TaskScheduler`), o executor
 em foreground (`TaskRunnerService`) e a tela de criacao/edicao
-(`ui/TasksScreen.kt`). Falta **so a tool** que cria a tarefa pelo chat.
+(`ui/TasksScreen.kt`). **Implementado** (`977cc83`): as tools `schedule_task`, `list_tasks` e `cancel_task`,
+com a ability `ToolAbility.SCHEDULE` e o seu toggle em Configuracoes > Ferramentas
+> Tarefas agendadas. O filtro de seguranca tambem foi implementado (as ferramentas
+da tarefa criada pelo modelo passam pelos interruptores do usuario).
 
 Desenho sugerido:
 
