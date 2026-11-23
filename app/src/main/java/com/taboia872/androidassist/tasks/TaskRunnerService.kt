@@ -13,7 +13,6 @@ import com.taboia872.androidassist.MainActivity
 import com.taboia872.androidassist.llm.LocalServer
 import com.taboia872.androidassist.llm.LlmProviders
 import com.taboia872.androidassist.settings.AppSettings
-import com.taboia872.androidassist.tools.Workspace
 import com.taboia872.androidassist.ui.ChatSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,9 +20,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Runs a scheduled task in the FOREGROUND.
@@ -40,11 +36,24 @@ class TaskRunnerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val taskId = intent?.getStringExtra(TaskScheduler.EXTRA_TASK_ID) ?: ""
+        // The app can be started by the alarm with NO activity: the
+        // settings (the encrypted preferences) have to be loaded here,
+        // otherwise the model comes back empty and the personas throw.
+        try {
+            AppSettings.init(applicationContext)
+        } catch (e: Exception) {
+        }
         startForegroundCompat("Executando a tarefa…")
         scope.launch {
+            var error: String? = null
             try {
                 runTask(taskId)
             } catch (e: Exception) {
+                error = e.message ?: e.javaClass.simpleName
+            }
+            // A failed task MUST say so (a silent failure is worse).
+            if (error != null) {
+                notifyFailure(taskId, error)
             }
             stopSelf(startId)
         }
@@ -98,7 +107,6 @@ class TaskRunnerService : Service() {
             waited += 150
         }
         val answer = lastAnswerText(session)
-        saveResult(app, task, answer)
         TaskStore.upsert(
             app,
             task.copy(
@@ -142,34 +150,6 @@ class TaskRunnerService : Service() {
             .trim()
     }
 
-    /** Save the report in the pointed folder (Markdown). */
-    private fun saveResult(context: Context, task: ScheduledTask, answer: String) {
-        if (!Workspace.isReady(context)) return
-        val stamp = SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.getDefault()).format(Date())
-        val safeTitle = task.title.trim()
-            .replace(Regex("[^\\p{L}\\p{N} _-]"), "")
-            .replace(Regex("\\s+"), "-")
-            .take(40)
-            .ifBlank { "tarefa" }
-        val body = buildString {
-            append("# ${task.title.ifBlank { "Tarefa" }}\n\n")
-            append("- Quando: ")
-            append(SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date()))
-            append("\n")
-            append("- Tarefa: ${task.prompt}\n")
-            append("- Modelo: ${AppSettings.config.value.model.ifBlank { "(padrão)" }}\n")
-            append("- Persona: ${task.personaId.ifBlank { "(padrão)" }}\n")
-            append(
-                "- Ferramentas: " +
-                    (if (task.allowedTools.isEmpty()) "nenhuma"
-                    else task.allowedTools.joinToString(", "))
-            )
-            append("\n\n---\n\n")
-            append(answer.ifBlank { "(o modelo não respondeu)" })
-        }
-        Workspace.ensureFolder(context, TASK_FOLDER)
-        Workspace.writeTextFile(context, "$stamp-$safeTitle.md", body, TASK_FOLDER)
-    }
 
     // ------------------------------------------------------- notifications
 
@@ -221,7 +201,31 @@ class TaskRunnerService : Service() {
             .setAutoCancel(true)
             .build()
         try {
-            manager.notify(NOTIFICATION_RESULT, n)
+            manager.notify(NOTIFICATION_RESULT + (task.id.hashCode() and 0x0FFF), n)
+        } catch (e: SecurityException) {
+        }
+    }
+
+    /** The notification of a task that FAILED (it says what happened). */
+    private fun notifyFailure(taskId: String, error: String) {
+        val app = applicationContext
+        val task = TaskStore.byId(app, taskId)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_RESULT, "Resultado das tarefas",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
+            )
+        }
+        val n = builder(CHANNEL_RESULT, task?.title ?: "Tarefa", error.take(160))
+            .setAutoCancel(true)
+            .build()
+        try {
+            manager.notify(
+                NOTIFICATION_RESULT + (taskId.hashCode() and 0x0FFF), n
+            )
         } catch (e: SecurityException) {
         }
     }
@@ -240,8 +244,6 @@ class TaskRunnerService : Service() {
     }
 
     companion object {
-        /** Where the reports live inside the pointed folder. */
-        const val TASK_FOLDER = "AndroidAssist/tarefas"
         /** The intent extra that opens a conversation. */
         const val EXTRA_OPEN_CHAT = "open_chat_id"
         private const val CHANNEL_RUN = "task_runs"

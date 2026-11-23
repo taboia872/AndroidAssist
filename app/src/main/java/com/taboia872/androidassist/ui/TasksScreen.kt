@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -71,7 +72,7 @@ import java.util.Locale
 @Composable
 fun TasksScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var tasks by remember { mutableStateOf(TaskStore.all(context)) }
+    var tasks by remember { mutableStateOf(TaskStore.all(context).byNextRun()) }
     var editing by remember { mutableStateOf<ScheduledTask?>(null) }
     var creating by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<ScheduledTask?>(null) }
@@ -83,7 +84,7 @@ fun TasksScreen(onBack: () -> Unit) {
             onSaved = { task ->
                 TaskStore.upsert(context, task)
                 TaskScheduler.schedule(context, task)
-                tasks = TaskStore.all(context)
+                tasks = TaskStore.all(context).byNextRun()
                 creating = false
                 editing = null
             }
@@ -100,7 +101,7 @@ fun TasksScreen(onBack: () -> Unit) {
                 TextButton(onClick = {
                     TaskScheduler.cancel(context, task.id)
                     TaskStore.remove(context, task.id)
-                    tasks = TaskStore.all(context)
+                    tasks = TaskStore.all(context).byNextRun()
                     toDelete = null
                 }) { Text(Strings.t(Strings.deleteChat)) }
             },
@@ -161,7 +162,7 @@ fun TasksScreen(onBack: () -> Unit) {
                                 val updated = task.copy(enabled = on)
                                 TaskStore.upsert(context, updated)
                                 TaskScheduler.schedule(context, updated)
-                                tasks = TaskStore.all(context)
+                                tasks = TaskStore.all(context).byNextRun()
                             },
                             onClick = { editing = task },
                             onDelete = { toDelete = task }
@@ -267,8 +268,7 @@ private fun TaskEditor(
     var tools by remember { mutableStateOf(initial?.allowedTools ?: emptyList()) }
     var onceAt by remember { mutableStateOf(initial?.onceAt ?: 0L) }
     var personaId by remember { mutableStateOf(initial?.personaId ?: "") }
-    var showHour by remember { mutableStateOf(false) }
-    var showMinute by remember { mutableStateOf(false) }
+    var showTime by remember { mutableStateOf(false) }
     var showDate by remember { mutableStateOf(false) }
     var showPersona by remember { mutableStateOf(false) }
 
@@ -363,22 +363,33 @@ private fun TaskEditor(
             }
         )
     }
-    if (showHour) {
-        NumberPickerDialog(
-            title = Strings.t(Strings.taskTime),
-            options = (0..23).map { it to String.format("%02d:00", it) },
-            current = hour,
-            onSelected = { hour = it; showHour = false },
-            onDismiss = { showHour = false }
-        )
-    }
-    if (showMinute) {
-        NumberPickerDialog(
-            title = Strings.t(Strings.taskTime),
-            options = (0..59).map { it to String.format("%02d min", it) },
-            current = minute,
-            onSelected = { minute = it; showMinute = false },
-            onDismiss = { showMinute = false }
+    if (showTime) {
+        var pickedHour by remember { mutableStateOf(hour) }
+        var pickedMinute by remember { mutableStateOf(minute) }
+        AlertDialog(
+            onDismissRequest = { showTime = false },
+            title = { Text(Strings.t(Strings.taskTime)) },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    WheelPicker(value = pickedHour, range = 0..23) { pickedHour = it }
+                    Text(":", style = MaterialTheme.typography.headlineSmall)
+                    WheelPicker(value = pickedMinute, range = 0..59) { pickedMinute = it }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    hour = pickedHour
+                    minute = pickedMinute
+                    showTime = false
+                }) { Text(Strings.t(Strings.save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTime = false }) { Text(Strings.t(Strings.cancel)) }
+            }
         )
     }
 
@@ -464,7 +475,14 @@ private fun TaskEditor(
                 )
                 FilterChip(
                     selected = repeatMode == ScheduledTask.REPEAT_ONCE,
-                    onClick = { repeatMode = ScheduledTask.REPEAT_ONCE },
+                    onClick = {
+                        repeatMode = ScheduledTask.REPEAT_ONCE
+                        // A "once" task without a date never fires: start
+                        // with an hour from now (the user can change it).
+                        if (onceAt <= 0) {
+                            onceAt = System.currentTimeMillis() + 60L * 60L * 1000L
+                        }
+                    },
                     label = { Text(Strings.t(Strings.repeatOnce)) }
                 )
             }
@@ -483,9 +501,9 @@ private fun TaskEditor(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TimeField(String.format("%02d", hour)) { showHour = true }
+                    TimeField(String.format("%02d", hour)) { showTime = true }
                     Text(":", style = MaterialTheme.typography.titleMedium)
-                    TimeField(String.format("%02d", minute)) { showMinute = true }
+                    TimeField(String.format("%02d", minute)) { showTime = true }
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -645,4 +663,34 @@ private fun datePickerToLocal(selected: Long, hour: Int, minute: Int): Long {
         hour, minute, 0
     )
     return local.timeInMillis
+}
+
+/** The closest run first (the ones with no run at the end). */
+private fun List<ScheduledTask>.byNextRun(): List<ScheduledTask> = sortedWith(
+    compareBy(
+        { it.nextRunAt().takeIf { t -> t > 0 } ?: Long.MAX_VALUE },
+        { it.title }
+    )
+)
+
+/** A wheel the user rolls to pick a number. */
+@Composable
+private fun WheelPicker(value: Int, range: IntRange, onChange: (Int) -> Unit) {
+    AndroidView(
+        modifier = Modifier
+            .width(110.dp)
+            .height(150.dp),
+        factory = { ctx ->
+            NumberPicker(ctx).apply {
+                minValue = range.first
+                maxValue = range.last
+                wrapSelectorWheel = false
+                setOnValueChangedListener { _, _, newValue -> onChange(newValue) }
+                this.value = value
+            }
+        },
+        update = { picker ->
+            if (picker.value != value) picker.value = value
+        }
+    )
 }
