@@ -299,7 +299,9 @@ private fun TaskEditor(
             onDismissRequest = { showDate = false },
             confirmButton = {
                 TextButton(onClick = {
-                    onceAt = datePickerToLocal(dateState.selectedDateMillis, hour, minute)
+                    onceAt = datePickerToLocal(
+                        dateState.selectedDateMillis ?: 0L, hour, minute
+                    )
                     showDate = false
                 }) { Text(Strings.t(Strings.save)) }
             },
