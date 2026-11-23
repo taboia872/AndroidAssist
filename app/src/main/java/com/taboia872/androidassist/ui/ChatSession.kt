@@ -611,6 +611,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             val lastAnswer = lastMsg?.blocks?.lastOrNull { it.kind == "answer" }?.text
             if (!lastAnswer.isNullOrBlank() &&
                 !lastAnswer.startsWith("\u26a0\ufe0f") &&
+                !suppressTts &&
                 AppSettings.config.value.ttsEnabled
             ) {
                 when (AppSettings.config.value.ttsMethod) {
@@ -776,6 +777,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * scheduled task (the task posts its own, with the result).
      */
     var suppressBackgroundNotification: Boolean = false
+
+    /**
+     * The scheduled task decides if the answer is spoken (the task's
+     * own switch), so the session does NOT speak it by itself.
+     */
+    var suppressTts: Boolean = false
 
     /** "The model answered" notification (no content) when backgrounded. */
     private fun notifyAnswered() {

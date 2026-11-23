@@ -222,6 +222,7 @@ private fun TaskRow(
                         append(" — ")
                         append(persona.name)
                     }
+                    if (task.speak) append(" \ud83d\udd0a")
                     if (task.lastResult.isNotBlank()) {
                         append("\n")
                         append(task.lastResult)
@@ -270,6 +271,10 @@ private fun TaskEditor(
     var tools by remember { mutableStateOf(initial?.allowedTools ?: emptyList()) }
     var onceAt by remember { mutableStateOf(initial?.onceAt ?: 0L) }
     var personaId by remember { mutableStateOf(initial?.personaId ?: "") }
+    var contextPrompt by remember {
+        mutableStateOf(initial?.contextPrompt ?: ScheduledTask.DEFAULT_CONTEXT)
+    }
+    var speak by remember { mutableStateOf(initial?.speak ?: false) }
     var showTime by remember { mutableStateOf(false) }
     var showDate by remember { mutableStateOf(false) }
     var showPersona by remember { mutableStateOf(false) }
@@ -422,7 +427,9 @@ private fun TaskEditor(
                                 daysOfWeek = days,
                                 allowedTools = tools,
                                 onceAt = onceAt,
-                                personaId = personaId
+                                personaId = personaId,
+                                contextPrompt = contextPrompt,
+                                speak = speak
                             )
                         )
                     }) {
@@ -454,6 +461,15 @@ private fun TaskEditor(
                 value = prompt,
                 onValueChange = { prompt = it },
                 label = { Text(Strings.t(Strings.taskPrompt)) },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedTextField(
+                value = contextPrompt,
+                onValueChange = { contextPrompt = it },
+                label = { Text(Strings.t(Strings.taskContextPrompt)) },
+                supportingText = { Text(Strings.t(Strings.taskContextHint)) },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -613,6 +629,27 @@ private fun TaskEditor(
                     )
                     Text(label, style = MaterialTheme.typography.bodyLarge)
                 }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // The task can SPEAK the answer (the TTS engine).
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        Strings.t(Strings.taskSpeak),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        Strings.t(Strings.taskSpeakHint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = speak, onCheckedChange = { speak = it })
             }
             Spacer(modifier = Modifier.height(24.dp))
         }

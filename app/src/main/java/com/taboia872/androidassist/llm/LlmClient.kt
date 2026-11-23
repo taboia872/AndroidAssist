@@ -264,7 +264,9 @@ object LlmClient {
                 "repeat" to ("string" to "once | daily | weekly (default: once when a date is given, daily otherwise)"),
                 "days" to ("array" to "The days of the week for a weekly task: mon,tue,wed,thu,fri,sat,sun"),
                 "tools" to ("array" to "The tools that task may use: web_search, alarm, timer, calendar, open_app, clipboard, share, location, map, files, messaging, open_url. Only the ones the user has enabled are accepted."),
-                "persona" to ("string" to "Optional name of the persona (the assistant profile) to use for the task")
+                "persona" to ("string" to "Optional name of the persona (the assistant profile) to use for the task"),
+                "context" to ("string" to "Optional instructions the model reads BEFORE the task (e.g. to tell it the answer is automatic and will be read aloud)."),
+                "speak" to ("boolean" to "True to read the answer out loud when the task runs")
             )
         ),
         ToolAbility.SCHEDULE to tool(

@@ -1052,7 +1052,9 @@ object DeviceTools {
             minute = minute,
             daysOfWeek = days,
             onceAt = onceAt,
-            personaId = personaId
+            personaId = personaId,
+            contextPrompt = args.optString("context", "").ifBlank { ScheduledTask.DEFAULT_CONTEXT },
+            speak = args.optBoolean("speak", false)
         )
         TaskStore.upsert(context, task)
         TaskScheduler.schedule(context, task)

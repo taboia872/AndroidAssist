@@ -38,6 +38,13 @@ data class ScheduledTask(
      * Empty = the app's current settings.
      */
     val personaId: String = "",
+    /**
+     * The instructions the model reads BEFORE the task itself (the
+     * default tells it the answer is automatic, not a live chat).
+     */
+    val contextPrompt: String = DEFAULT_CONTEXT,
+    /** The task speaks the answer out loud (the TTS engine). */
+    val speak: Boolean = false,
     val enabled: Boolean = true,
     /** When it last ran (epoch millis). */
     val lastRunAt: Long = 0L,
@@ -108,12 +115,27 @@ data class ScheduledTask(
         put("daysOfWeek", JSONArray(daysOfWeek))
         put("onceAt", onceAt)
         put("personaId", personaId)
+        put("contextPrompt", contextPrompt)
+        put("speak", speak)
         put("enabled", enabled)
         put("lastRunAt", lastRunAt)
         put("lastResult", lastResult)
     }
 
     companion object {
+        /**
+         * The default pre-prompt: the model has to know the answer is
+         * an automatic execution (no one is typing) and that it may end
+         * up in a notification and in the chat history.
+         */
+        const val DEFAULT_CONTEXT =
+            "This is an AUTOMATIC scheduled task: the app woke up and ran " +
+                "this request by itself at the scheduled time (nobody is typing " +
+                "right now). Your answer will be shown in a notification, saved " +
+                "in the chat history and may be read out loud. Answer as if the " +
+                "user had asked it right now: complete, self-contained and " +
+                "practical, without asking for confirmation."
+
         const val REPEAT_DAILY = "daily"
         const val REPEAT_WEEKLY = "weekly"
         const val REPEAT_ONCE = "once"
@@ -131,6 +153,8 @@ data class ScheduledTask(
                 daysOfWeek = o.optJSONArray("daysOfWeek").toIntList(),
                 onceAt = o.optLong("onceAt", 0L),
                 personaId = o.optString("personaId", ""),
+                contextPrompt = o.optString("contextPrompt", DEFAULT_CONTEXT),
+                speak = o.optBoolean("speak", false),
                 enabled = o.optBoolean("enabled", true),
                 lastRunAt = o.optLong("lastRunAt", 0L),
                 lastResult = o.optString("lastResult")

@@ -75,6 +75,8 @@ class TaskRunnerService : Service() {
         // The session would post its own "the model answered" notification:
         // the task has its own, with the result.
         session.suppressBackgroundNotification = true
+        // The TASK decides if the answer is spoken (its own switch).
+        session.suppressTts = true
         // The PERSONA of the task (its prompt, its model, its provider)
         // — or the app's current settings when the task has none.
         val cfg = AppSettings.config.value
@@ -86,7 +88,13 @@ class TaskRunnerService : Service() {
             baseUrl = persona?.baseUrl ?: cfg.baseUrl,
             model = persona?.model ?: cfg.model,
             webSearchEnabled = persona?.webSearchEnabled ?: cfg.webSearchEnabled,
-            searchEngine = persona?.searchEngine ?: cfg.searchEngine
+            searchEngine = persona?.searchEngine ?: cfg.searchEngine,
+            ttsEnabled = persona?.ttsEnabled ?: cfg.ttsEnabled,
+            ttsMethod = persona?.ttsMethod ?: cfg.ttsMethod,
+            ttsLanguage = persona?.ttsLanguage ?: cfg.ttsLanguage,
+            fishModel = persona?.fishModel ?: cfg.fishModel,
+            fishVoiceId = persona?.fishVoiceId ?: cfg.fishVoiceId,
+            fishVoiceName = persona?.fishVoiceName ?: cfg.fishVoiceName
         )
         // The local server down? The task runs with the CLOUD model
         // (the user asked for this fallback).
@@ -95,8 +103,16 @@ class TaskRunnerService : Service() {
         ) {
             cloudFallback(base)
         } else base
+        // The pre-prompt tells the model this is an automatic run (the
+        // answer goes to a notification, not to a live conversation).
+        val context = task.contextPrompt.ifBlank { ScheduledTask.DEFAULT_CONTEXT }
+        val fullPrompt = if (context.isBlank()) {
+            task.prompt
+        } else {
+            context + "\n\n" + task.prompt
+        }
         session.send(
-            task.prompt,
+            fullPrompt,
             allowedTools = task.allowedTools,
             cfgOverride = override
         )
@@ -107,6 +123,10 @@ class TaskRunnerService : Service() {
             waited += 150
         }
         val answer = lastAnswerText(session)
+        // The task can SPEAK the answer (the user chose it at creation).
+        if (task.speak && answer.isNotBlank()) {
+            speakAnswer(base, answer)
+        }
         TaskStore.upsert(
             app,
             task.copy(
@@ -138,6 +158,28 @@ class TaskRunnerService : Service() {
             baseUrl = provider.defaultBaseUrl,
             model = cfg.lastCloudModel
         )
+    }
+
+    /**
+     * Speaks the answer with the TTS engine (the same one the chat
+     * uses): the persona's voice when the task has a persona.
+     */
+    private suspend fun speakAnswer(
+        cfg: com.taboia872.androidassist.settings.AppConfig,
+        text: String
+    ) {
+        val spoken = text.replace(Regex("[*#`_~]"), "").trim()
+        if (spoken.isBlank()) return
+        try {
+            when (cfg.ttsMethod) {
+                "fish" -> com.taboia872.androidassist.tts.FishTts.speak(spoken)
+                else -> {
+                    com.taboia872.androidassist.tts.TtsManager.applyLanguage(cfg.ttsLanguage)
+                    com.taboia872.androidassist.tts.TtsManager.speak(spoken)
+                }
+            }
+        } catch (e: Exception) {
+        }
     }
 
     /** The text of the last answer of the session. */
