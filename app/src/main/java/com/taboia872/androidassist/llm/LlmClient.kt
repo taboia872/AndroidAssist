@@ -249,6 +249,39 @@ object LlmClient {
                 "title" to ("string" to "Optional label for the link (the title of the page), shown to the user.")
             )
         ),
+        ToolAbility.SCHEDULE to tool(
+            "schedule_task",
+            "Schedule a task for the assistant to run BY ITSELF later (it works with the app closed). " +
+                "Use it when the user asks for something to happen at a time or on a schedule " +
+                "(a daily report, a reminder, a weekly summary). The task runs exactly as you would " +
+                "answer it, and the result opens in its own conversation.",
+            "title" to "Short title of the task (shown in the list)",
+            required = listOf("title", "prompt", "time"),
+            extraProps = mapOf(
+                "prompt" to ("string" to "What the assistant must do at that time (a full instruction, in the user's language)"),
+                "time" to ("string" to "The time of the day in 24h format, e.g. '17:00'"),
+                "date" to ("string" to "The date for a ONE-TIME task, e.g. '2026-11-22'. Leave empty for daily/weekly."),
+                "repeat" to ("string" to "once | daily | weekly (default: once when a date is given, daily otherwise)"),
+                "days" to ("array" to "The days of the week for a weekly task: mon,tue,wed,thu,fri,sat,sun"),
+                "tools" to ("array" to "The tools that task may use: web_search, alarm, timer, calendar, open_app, clipboard, share, location, map, files, messaging, open_url. Only the ones the user has enabled are accepted."),
+                "persona" to ("string" to "Optional name of the persona (the assistant profile) to use for the task")
+            )
+        ),
+        ToolAbility.SCHEDULE to tool(
+            "list_tasks",
+            "List the scheduled tasks of the assistant (what is scheduled, when it runs next, whether it is enabled). " +
+                "Use it when the user asks what is scheduled, or to find the id of a task to cancel.",
+            "query" to "Optional filter: a word of the title. Leave empty to list everything."
+        ),
+        ToolAbility.SCHEDULE to tool(
+            "cancel_task",
+            "Cancel a scheduled task (it stops running). Use the id from list_tasks.",
+            "id" to "The id of the task (from list_tasks). If the id is unknown, the title is used instead.",
+            required = listOf("id"),
+            extraProps = mapOf(
+                "title" to ("string" to "Optional title of the task to cancel")
+            )
+        ),
         ToolAbility.MESSAGING to tool(
             "send_message",
             "Send a message to a contact of the user's agenda (WhatsApp, Telegram, SMS — whichever messaging app is installed). The contact is chosen by NAME from the user's contacts, and the message opens ready to send — the user confirms it before it goes.",

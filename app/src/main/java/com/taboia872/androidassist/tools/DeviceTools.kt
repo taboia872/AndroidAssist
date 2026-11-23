@@ -7,6 +7,10 @@ import android.provider.AlarmClock
 import android.provider.CalendarContract
 import com.taboia872.androidassist.net.Net
 import com.taboia872.androidassist.settings.AppSettings
+import com.taboia872.androidassist.tasks.ScheduledTask
+import com.taboia872.androidassist.tasks.TaskScheduler
+import com.taboia872.androidassist.tasks.TaskStore
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -54,6 +58,9 @@ object DeviceTools {
                 "delete_folder" -> deleteFolder(context, args)
                 "send_message" -> sendMessage(context, args)
                 "open_url" -> openUrl(context, args)
+                "schedule_task" -> scheduleTask(context, args)
+                "list_tasks" -> listTasks(context, args)
+                "cancel_task" -> cancelTask(context, args)
                 else -> Result(
                     ok = false,
                     userText = "? $name",
@@ -949,3 +956,159 @@ object DeviceTools {
         }
     }
 }
+
+    // ------------------------------------------------------- scheduled tasks
+
+    /**
+     * The model schedules a task for itself. The tools it may use are
+     * filtered by the user's own switches: the model can never grant
+     * itself an ability the user turned off.
+     */
+    private fun scheduleTask(context: Context, args: org.json.JSONObject): Result {
+        val title = args.optString("title", "").trim()
+        val prompt = args.optString("prompt", "").trim()
+        val time = args.optString("time", "").trim()
+        if (title.isBlank() || prompt.isBlank()) {
+            return Result(false, "\ud83d\uddd3 ?", "The task needs a title and what to do.", "search")
+        }
+        val parts = time.split(":")
+        val hour = parts.getOrNull(0)?.trim()?.toIntOrNull()
+        val minute = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+        if (hour == null || hour !in 0..23 || minute !in 0..59) {
+            return Result(
+                false, "\ud83d\uddd3 ?",
+                "Invalid time '$time'. Use the 24h format, e.g. '17:00'.", "search"
+            )
+        }
+        val date = args.optString("date", "").trim()
+        val repeat = args.optString("repeat", "").trim().lowercase(Locale.ROOT)
+        val mode = when {
+            repeat.startsWith("dai") -> ScheduledTask.REPEAT_DAILY
+            repeat.startsWith("wee") || repeat.startsWith("sem") -> ScheduledTask.REPEAT_WEEKLY
+            repeat.startsWith("onc") || repeat.startsWith("uni") -> ScheduledTask.REPEAT_ONCE
+            date.isNotBlank() -> ScheduledTask.REPEAT_ONCE
+            else -> ScheduledTask.REPEAT_DAILY
+        }
+        // The days of a weekly task ("mon,tue" or a JSON array).
+        val dayMap = mapOf(
+            "mon" to java.util.Calendar.MONDAY, "tue" to java.util.Calendar.TUESDAY,
+            "wed" to java.util.Calendar.WEDNESDAY, "thu" to java.util.Calendar.THURSDAY,
+            "fri" to java.util.Calendar.FRIDAY, "sat" to java.util.Calendar.SATURDAY,
+            "sun" to java.util.Calendar.SUNDAY
+        )
+        val days = mutableListOf<Int>()
+        val dayArg = args.optJSONArray("days")
+        if (dayArg != null) {
+            for (i in 0 until dayArg.length()) {
+                dayMap[dayArg.optString(i, "").trim().lowercase(Locale.ROOT)]?.let { days.add(it) }
+            }
+        } else {
+            args.optString("days", "").split(",").forEach { d ->
+                dayMap[d.trim().lowercase(Locale.ROOT)]?.let { days.add(it) }
+            }
+        }
+        // The moment of a one-time task.
+        var onceAt = 0L
+        if (mode == ScheduledTask.REPEAT_ONCE) {
+            val parsed = date.takeIf { it.isNotBlank() }?.let {
+                try { LocalDate.parse(it) } catch (e: Exception) { null }
+            }
+            val day = parsed ?: LocalDate.now()
+            var moment = day.atTime(hour, minute).atZone(ZoneId.systemDefault())
+            if (moment.toInstant().toEpochMilli() <= System.currentTimeMillis()) {
+                // The moment already passed: run it now (one minute).
+                moment = LocalDateTime.now().plusMinutes(1).atZone(ZoneId.systemDefault())
+            }
+            onceAt = moment.toInstant().toEpochMilli()
+        }
+        // The tools the task may use — only the ones the user enabled.
+        val requested = mutableListOf<String>()
+        val toolArg = args.optJSONArray("tools")
+        if (toolArg != null) {
+            for (i in 0 until toolArg.length()) {
+                requested.add(toolArg.optString(i, "").trim())
+            }
+        } else {
+            args.optString("tools", "").split(",").forEach { requested.add(it.trim()) }
+        }
+        val allowed = requested.filter { id ->
+            when (id) {
+                "web_search" -> AppSettings.config.value.webSearchEnabled
+                "memory" -> AppSettings.config.value.memoryToolsEnabled
+                else -> AppSettings.abilityEnabled(id)
+            }
+        }.distinct()
+        // The persona (by name).
+        val personaName = args.optString("persona", "").trim()
+        val personaId = if (personaName.isBlank()) "" else {
+            AppSettings.personas().firstOrNull {
+                it.name.equals(personaName, ignoreCase = true)
+            }?.id ?: ""
+        }
+        val task = ScheduledTask(
+            title = title,
+            prompt = prompt,
+            allowedTools = allowed,
+            repeatMode = mode,
+            hour = hour,
+            minute = minute,
+            daysOfWeek = days,
+            onceAt = onceAt,
+            personaId = personaId
+        )
+        TaskStore.upsert(context, task)
+        TaskScheduler.schedule(context, task)
+        val next = task.nextRunAt()
+        val whenText = if (next > 0) {
+            java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                .format(java.util.Date(next))
+        } else "?"
+        return Result(
+            ok = true,
+            userText = "\ud83d\uddd3 $title",
+            modelText = "Scheduled: '$title' at $whenText (${task.scheduleLabel()}). " +
+                "Tools: ${if (allowed.isEmpty()) "none" else allowed.joinToString(", ")}. " +
+                "The user can review it in Settings > Scheduled tasks.",
+            icon = "calendar"
+        )
+    }
+
+    /** The list of the scheduled tasks (the model reads it). */
+    private fun listTasks(context: Context, args: org.json.JSONObject): Result {
+        val filter = args.optString("query", "").trim().lowercase(Locale.ROOT)
+        val all = TaskStore.all(context).sortedBy {
+            it.nextRunAt().takeIf { t -> t > 0 } ?: Long.MAX_VALUE
+        }
+        val shown = if (filter.isBlank()) all else all.filter {
+            it.title.lowercase(Locale.ROOT).contains(filter)
+        }
+        if (shown.isEmpty()) {
+            return Result(true, "\ud83d\uddd3 0", "There are no scheduled tasks.", "calendar")
+        }
+        val text = shown.joinToString("\n") { t ->
+            val next = t.nextRunAt()
+            val whenText = if (next > 0) {
+                java.text.SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
+                    .format(java.util.Date(next))
+            } else "-"
+            "${t.id} | ${t.title} | ${t.scheduleLabel()} ${t.timeLabel()} | next: $whenText | " +
+                "enabled: ${t.enabled} | tools: ${if (t.allowedTools.isEmpty()) "none" else t.allowedTools.joinToString(",")}"
+        }
+        return Result(true, "\ud83d\uddd3 ${shown.size}", text, "calendar")
+    }
+
+    /** The model cancels a scheduled task. */
+    private fun cancelTask(context: Context, args: org.json.JSONObject): Result {
+        val id = args.optString("id", "").trim()
+        val title = args.optString("title", "").trim()
+        val all = TaskStore.all(context)
+        val task = all.firstOrNull { it.id == id }
+            ?: all.firstOrNull { title.isNotBlank() && it.title.equals(title, ignoreCase = true) }
+            ?: return Result(
+                false, "\ud83d\uddd3 ?",
+                "No task with the id '$id'. Call list_tasks to see the ids.", "calendar"
+            )
+        TaskScheduler.cancel(context, task.id)
+        TaskStore.remove(context, task.id)
+        return Result(true, "\ud83d\uddd3 \u2713", "Cancelled: ${task.title}", "calendar")
+    }

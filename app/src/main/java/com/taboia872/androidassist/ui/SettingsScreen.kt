@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Star
@@ -219,6 +220,12 @@ private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
         AbilityRow(
             ToolAbility.MAP, Icons.Default.Map,
             Strings.abilityMap, Strings.abilityMapDesc
+        )
+    ),
+    Strings.abilityGroupTasks to listOf(
+        AbilityRow(
+            ToolAbility.SCHEDULE, Icons.Default.Schedule,
+            Strings.abilitySchedule, Strings.abilityScheduleDesc
         )
     ),
     Strings.abilityGroupFiles to listOf(

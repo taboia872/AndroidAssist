@@ -29,6 +29,8 @@ object ToolAbility {
     const val MESSAGING = "messaging"
     /** Open a web page (a link from a search, a site, a playlist). */
     const val OPEN_URL = "open_url"
+    /** The assistant schedules (and reads) its own tasks. */
+    const val SCHEDULE = "schedule"
 
     /** Ability id -> the tool function names it covers (one or more). */
     val TOOLS: Map<String, List<String>> = mapOf(
@@ -45,7 +47,8 @@ object ToolAbility {
             "delete_file", "delete_folder"
         ),
         MESSAGING to listOf("send_message"),
-        OPEN_URL to listOf("open_url")
+        OPEN_URL to listOf("open_url"),
+        SCHEDULE to listOf("schedule_task", "list_tasks", "cancel_task")
     )
 
     /** The memory tools — their own group, independent from the abilities. */
