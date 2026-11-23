@@ -955,8 +955,6 @@ object DeviceTools {
             )
         }
     }
-}
-
     // ------------------------------------------------------- scheduled tasks
 
     /**
@@ -1112,3 +1110,4 @@ object DeviceTools {
         TaskStore.remove(context, task.id)
         return Result(true, "\ud83d\uddd3 \u2713", "Cancelled: ${task.title}", "calendar")
     }
+}
