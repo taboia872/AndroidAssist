@@ -97,7 +97,6 @@ import java.util.Locale
  * no auto-start here — the main screen is for browsing/continuing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     resumeChatId: String? = null,

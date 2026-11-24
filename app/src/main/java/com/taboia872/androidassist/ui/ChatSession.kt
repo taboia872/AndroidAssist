@@ -854,33 +854,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         val keepFrom = all.size - (maxTurns * 2)
         return full.subList(keepFrom, full.size).toList()
     }
-}
 
-/**
- * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
- * gesture). Created once per process — streaming survives screen changes
- * and backgrounding because the session owns its coroutine scope.
- */
-object ChatSessions {
-
-    /** App in the FOREGROUND? Activities flip this in onResume/onPause. */
-    @Volatile var appInForeground = false
-    @Volatile private var initialized = false
-    lateinit var main: ChatSession
-        private set
-    lateinit var overlay: ChatSession
-        private set
-
-    fun init(context: android.content.Context) {
-        if (initialized) return
-        synchronized(this) {
-            if (initialized) return
-            val app = context.applicationContext
-            main = ChatSession(app)
-            overlay = ChatSession(app)
-            initialized = true
-        }
-    }
     /**
      * The system prompt of a turn: the persona's prompt + the date and
      * the local time (the models have no clock) + the memories.
@@ -938,6 +912,32 @@ object ChatSessions {
         } catch (e: Exception) {
         }
     }
+}
 
+/**
+ * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
+ * gesture). Created once per process — streaming survives screen changes
+ * and backgrounding because the session owns its coroutine scope.
+ */
+object ChatSessions {
+
+    /** App in the FOREGROUND? Activities flip this in onResume/onPause. */
+    @Volatile var appInForeground = false
+    @Volatile private var initialized = false
+    lateinit var main: ChatSession
+        private set
+    lateinit var overlay: ChatSession
+        private set
+
+    fun init(context: android.content.Context) {
+        if (initialized) return
+        synchronized(this) {
+            if (initialized) return
+            val app = context.applicationContext
+            main = ChatSession(app)
+            overlay = ChatSession(app)
+            initialized = true
+        }
+    }
 
 }
