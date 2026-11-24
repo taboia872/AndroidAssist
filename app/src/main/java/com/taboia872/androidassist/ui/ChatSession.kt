@@ -882,6 +882,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return basePrompt
     }
 
+}
+
+/**
+ * The app-scoped sessions (the main chat and the overlay). The session
+ * owns its coroutine scope: streaming and the end-of-turn save survive
+ * the Activity.
+ */
+object ChatSessions {
+
     /** App in the FOREGROUND? Activities flip this in onResume/onPause. */
     @Volatile var appInForeground = false
     @Volatile private var initialized = false
