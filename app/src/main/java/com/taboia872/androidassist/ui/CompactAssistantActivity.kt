@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -498,9 +497,6 @@ private fun CompactAssistantSheet(
                                 )
                             }
                         }
-                        LaunchedEffect(lastAssistant?.blocks?.size, transcript) {
-                            scrollState.animateScrollTo(scrollState.maxValue)
-                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -761,95 +757,6 @@ private fun FullscreenAssistant(
                 item { Spacer(Modifier.height(1.dp)) }
             }
 
-            // The index of the SENTINEL (the empty item at the end of the
-            // list): the messages plus the extra items that are in the
-            // list (the listening bubble, the transcript bubble, the
-            // thinking bubble, the voice error). It is computed from the
-            // DATA (the layout count can be stale while the list re-lays
-            // out) and read LIVE (inside the snapshotFlow).
-            fun liveSentinel(): Int {
-                val extras = (if (liveListening && liveTranscript.isEmpty()) 1 else 0) +
-                    (if (liveTranscript.isNotEmpty()) 1 else 0) +
-                    (if (session.busy && session.messages.lastOrNull()?.role != "assistant") 1 else 0) +
-                    (if (liveVoiceError != null) 1 else 0)
-                return session.messages.size + extras
-            }
-
-            // ---- auto-scroll ------------------------------------------------
-            //
-            // ONE controller. The rules:
-            //
-            //  1) When the model STARTS an answer, the chat scrolls to
-            //     the TOP of that answer and STOPS there: the user reads
-            //     the text as it arrives (it grows downwards, the view
-            //     does not move). The old "follow" pushed the text up
-            //     while the user was reading it.
-            //  2) The user's drag always wins: while the finger is on
-            //     the screen the app does not scroll at all.
-            //  3) Opening a chat from the history still aligns with the
-            //     END of the last answer (the effect below).
-            //
-            // The LIVE values are read INSIDE the snapshotFlow: a value
-            // captured OUTSIDE the flow is FROZEN for the whole life of
-            // the effect (a LaunchedEffect keeps the closure of the
-            // composition where it started) — that bug made the follow
-            // aim at index 0 and the chat jumped to the TOP.
-            val userIsDragging by listState.interactionSource.collectIsDraggedAsState()
-
-            LaunchedEffect(session.chatId) {
-                // -1 = the first emission is the BASELINE (the chat was
-                // opened with this content): it is not a new message.
-                var previousMessages = -1
-                var previousAnswers = -1
-                snapshotFlow {
-                    val msgs = session.messages
-                    val answers = msgs.lastOrNull { it.role == "assistant" }
-                        ?.blocks?.count { it.kind == "answer" } ?: 0
-                    listOf(
-                        msgs.size,
-                        answers,
-                        if (userIsDragging) 1 else 0,
-                        listState.layoutInfo.totalItemsCount
-                    )
-                }.collect { s ->
-                    val messageCount = s[0]
-                    val answerCount = s[1]
-                    val dragging = s[2] == 1
-                    val itemCount = s[3]
-                    if (previousMessages < 0) {
-                        previousMessages = messageCount
-                        previousAnswers = answerCount
-                        return@collect
-                    }
-                    val newMessage = messageCount != previousMessages
-                    val newAnswer = answerCount != previousAnswers
-                    previousMessages = messageCount
-                    previousAnswers = answerCount
-                    if (itemCount == 0) return@collect
-                    // The user's finger is on the screen: the app does
-                    // not scroll (it would fight the finger).
-                    if (dragging) return@collect
-                    if (!newMessage && !newAnswer) return@collect
-                    // The TOP of the last message: for the user's own
-                    // message it is the bottom of the conversation, for
-                    // the model it is the first line of the answer.
-                    val lastMessage = (messageCount - 1).coerceAtLeast(0)
-                    listState.scrollToItem(lastMessage.coerceAtMost(itemCount - 1))
-                }
-            }
-
-            // Opening a chat: align with the last answer, instantly.
-            // Wait for the MESSAGES to be in the list AND for the items to
-            // be MEASURED: a scrollToItem before the first measurement
-            // does nothing at all.
-            LaunchedEffect(session.chatId) {
-                snapshotFlow {
-                    val info = listState.layoutInfo
-                    info.totalItemsCount == liveSentinel() + 1 &&
-                        info.visibleItemsInfo.isNotEmpty()
-                }.first { it }
-                listState.scrollToItem(liveSentinel())
-            }
 
             viewerImage?.let { img ->
                 ImageViewerDialog(imageBase64 = img, onDismiss = { viewerImage = null })

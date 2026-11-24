@@ -42,7 +42,7 @@ data class ScheduledTask(
      * The instructions the model reads BEFORE the task itself (the
      * default tells it the answer is automatic, not a live chat).
      */
-    val contextPrompt: String = DEFAULT_CONTEXT,
+    val contextPrompt: String = "",
     /** The task speaks the answer out loud (the TTS engine). */
     val speak: Boolean = false,
     val enabled: Boolean = true,
@@ -136,6 +136,12 @@ data class ScheduledTask(
                 "user had asked it right now: complete, self-contained and " +
                 "practical, without asking for confirmation."
 
+        /**
+         * The OLD default (in English): a task saved with it shows the
+         * CURRENT default (the one of the app's language) instead.
+         */
+        const val OLD_DEFAULT_CONTEXT = DEFAULT_CONTEXT
+
         const val REPEAT_DAILY = "daily"
         const val REPEAT_WEEKLY = "weekly"
         const val REPEAT_ONCE = "once"
@@ -153,7 +159,7 @@ data class ScheduledTask(
                 daysOfWeek = o.optJSONArray("daysOfWeek").toIntList(),
                 onceAt = o.optLong("onceAt", 0L),
                 personaId = o.optString("personaId", ""),
-                contextPrompt = o.optString("contextPrompt", DEFAULT_CONTEXT),
+                contextPrompt = o.optString("contextPrompt", ""),
                 speak = o.optBoolean("speak", false),
                 enabled = o.optBoolean("enabled", true),
                 lastRunAt = o.optLong("lastRunAt", 0L),

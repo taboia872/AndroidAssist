@@ -1573,7 +1573,7 @@ private fun SettingsOverviewCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        if (hasPersonas) "Tap to switch persona" else keyStatus,
+                        if (hasPersonas) Strings.t(Strings.tapToSwitchPersona) else keyStatus,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
                     )
@@ -3259,7 +3259,7 @@ private fun PersonaDialog(
                                 renameText = p.name
                             }, modifier = Modifier.size(32.dp)) {
                                 Icon(
-                                    Icons.Default.Edit, "Rename",
+                                    Icons.Default.Edit, Strings.t(Strings.rename),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }

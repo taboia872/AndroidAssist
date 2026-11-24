@@ -272,7 +272,16 @@ private fun TaskEditor(
     var onceAt by remember { mutableStateOf(initial?.onceAt ?: 0L) }
     var personaId by remember { mutableStateOf(initial?.personaId ?: "") }
     var contextPrompt by remember {
-        mutableStateOf(initial?.contextPrompt ?: ScheduledTask.DEFAULT_CONTEXT)
+        val stored = initial?.contextPrompt ?: ""
+        mutableStateOf(
+            // A task saved with the OLD default follows the app's
+            // language (the current default).
+            if (stored.isBlank() || stored == ScheduledTask.OLD_DEFAULT_CONTEXT) {
+                Strings.t(Strings.taskDefaultContext)
+            } else {
+                stored
+            }
+        )
     }
     var speak by remember { mutableStateOf(initial?.speak ?: false) }
     var showTime by remember { mutableStateOf(false) }

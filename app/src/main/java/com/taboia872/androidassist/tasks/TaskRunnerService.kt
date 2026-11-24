@@ -105,7 +105,11 @@ class TaskRunnerService : Service() {
         } else base
         // The pre-prompt tells the model this is an automatic run (the
         // answer goes to a notification, not to a live conversation).
-        val context = task.contextPrompt.ifBlank { ScheduledTask.DEFAULT_CONTEXT }
+        val context = task.contextPrompt.ifBlank {
+            com.taboia872.androidassist.i18n.Strings.t(
+                com.taboia872.androidassist.i18n.Strings.taskDefaultContext
+            )
+        }
         val fullPrompt = if (context.isBlank()) {
             task.prompt
         } else {
