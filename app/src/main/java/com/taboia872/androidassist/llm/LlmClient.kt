@@ -345,8 +345,6 @@ object LlmClient {
          * setting). True turns it on even if the setting is off.
          */
         webSearchOverride: Boolean? = null,
-        /** Limits the answer (the warm-up asks for ONE token). */
-        maxTokens: Int? = null,
         /**
          * The tools THIS request may declare (the ability ids +
          * "web_search" + "memory"). Null = the user's own settings. A
@@ -377,7 +375,6 @@ object LlmClient {
         val body = JSONObject().apply {
             put("model", cfg.model)
             put("stream", true)
-            if (maxTokens != null) put("max_tokens", maxTokens)
             // No-think mode (local thinking models): llama-server and
             // compatible servers accept chat_template_kwargs; others ignore
             // the extra field harmlessly.

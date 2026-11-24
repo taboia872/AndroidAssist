@@ -882,45 +882,6 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         return basePrompt
     }
 
-    /**
-     * Primes the LOCAL server's prompt cache.
-     *
-     * The llama.cpp server keeps the KV cache of the last prompt: the
-     * SECOND answer of a chat is faster because the system prompt, the
-     * tools and the memories are already processed. This sends the SAME
-     * prefix (the system prompt + the tools) with a tiny message and ONE
-     * token of answer, so the FIRST answer of a new chat is as fast as
-     * the second one.
-     *
-     * Only for the local server: a cloud provider would charge for it.
-     */
-    suspend fun warmUp() {
-        try {
-            val cfg = AppSettings.config.value
-            if (cfg.providerId != com.taboia872.androidassist.llm.LlmProviders.LOCAL.id) {
-                return
-            }
-            if (cfg.baseUrl.isBlank() || cfg.model.isBlank()) return
-            LlmClient.chat(
-                messages = listOf(Triple("user", ".", null)),
-                systemPrompt = buildBasePrompt(cfg),
-                toolsEnabled = AppSettings.anyToolEnabled(),
-                allowWebSearch = true,
-                maxTokens = 1,
-                cfgOverride = cfg
-            ).collect { }
-        } catch (e: Exception) {
-        }
-    }
-}
-
-/**
- * App-scoped chat sessions: `main` (MainActivity) and `overlay` (assistant
- * gesture). Created once per process — streaming survives screen changes
- * and backgrounding because the session owns its coroutine scope.
- */
-object ChatSessions {
-
     /** App in the FOREGROUND? Activities flip this in onResume/onPause. */
     @Volatile var appInForeground = false
     @Volatile private var initialized = false

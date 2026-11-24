@@ -67,7 +67,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
@@ -527,15 +526,6 @@ fun SettingsScreen(
                             checked = cfg.noThink,
                             onCheckedChange = { on ->
                                 AppSettings.update { it.copy(noThink = on) }
-                            }
-                        )
-                        SettingsItemWithSwitch(
-                            icon = Icons.Default.Speed,
-                            title = Strings.t(Strings.warmUpLabel),
-                            subtitle = Strings.t(Strings.warmUpSub),
-                            checked = cfg.warmUpEnabled,
-                            onCheckedChange = { on ->
-                                AppSettings.update { it.copy(warmUpEnabled = on) }
                             }
                         )
                     }
