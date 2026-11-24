@@ -268,8 +268,6 @@ object Strings {
             "shown in a notification, saved in the chat history, and may be read " +
             "out loud (if the read-aloud option is enabled, answer like a " +
             "conversation between two people)."
-    const val tapToSwitchPersona = "Tap to switch persona"
-    const val rename = "Rename"
     const val taskContextHint = "The model reads this before the task. The default tells it the answer is automatic, not a live chat."
     const val taskSpeak = "Read the answer aloud"
     const val taskSpeakHint = "The voice engine reads the answer when the task runs."
@@ -677,8 +675,6 @@ object Strings {
                 "será exibida em uma notificação, salva no histórico do chat e pode " +
                 "ser lida em voz alta (caso a opção de leitura em voz alta esteja " +
                 "habilitada responda como um dialogo entre duas pessoas)."
-        tapToSwitchPersona -> "Toque para trocar de persona"
-        rename -> "Renomear"
         taskContextHint -> "O modelo lê isso antes da tarefa. O padrão avisa que a resposta é automática, não uma conversa ao vivo."
         taskSpeak -> "Ler a resposta em voz alta"
         taskSpeakHint -> "O motor de voz lê a resposta quando a tarefa roda."
