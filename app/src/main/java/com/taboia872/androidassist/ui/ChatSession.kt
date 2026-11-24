@@ -342,26 +342,10 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             // "what time is it" and do time-based reasoning (schedules,
             // "in 2 hours", "tomorrow at 7"). The no-think directive rides
             // along when enabled.
-            val now = java.util.Date()
-            val today = java.text.SimpleDateFormat(
-                "yyyy-MM-dd (EEEE)", java.util.Locale.getDefault()
-            ).format(now)
-            val clock = java.text.SimpleDateFormat(
-                "HH:mm", java.util.Locale.getDefault()
-            ).format(now)
-            val zone = java.util.TimeZone.getDefault().id
             // A persona da tarefa (o seu prompt, o seu modelo): o
             // override de configuracao do turno manda no system prompt.
             val turnCfg = turnConfigOverride ?: AppSettings.config.value
-            var basePrompt = turnCfg.systemPrompt +
-                "\n\nCurrent date: $today.\nCurrent time: $clock ($zone)."
-            if (AppSettings.config.value.noThink) {
-                basePrompt += "\n\nDo NOT produce any reasoning or thinking " +
-                    "process; answer directly and concisely."
-            }
-            // Persistent memories (core instructions + preferences) ride the
-            // system prompt; facts/skills stay retrievable via search_memories.
-            ctx?.let { basePrompt += MemoryStore.promptBlock(it) }
+            val basePrompt = buildBasePrompt(turnCfg)
 
             // Snapshot BEFORE the turn streams: every round replays the same
             // conversation + ALL completed tool exchanges (multi-search loop).
@@ -897,4 +881,63 @@ object ChatSessions {
             initialized = true
         }
     }
+    /**
+     * The system prompt of a turn: the persona's prompt + the date and
+     * the local time (the models have no clock) + the memories.
+     */
+    private fun buildBasePrompt(
+        cfg: com.taboia872.androidassist.settings.AppConfig
+    ): String {
+        val now = java.util.Date()
+        val today = java.text.SimpleDateFormat(
+            "yyyy-MM-dd (EEEE)", java.util.Locale.getDefault()
+        ).format(now)
+        val clock = java.text.SimpleDateFormat(
+            "HH:mm", java.util.Locale.getDefault()
+        ).format(now)
+        val zone = java.util.TimeZone.getDefault().id
+        var basePrompt = cfg.systemPrompt +
+            "\n\nCurrent date: $today.\nCurrent time: $clock ($zone)."
+        if (AppSettings.config.value.noThink) {
+            basePrompt += "\n\nDo NOT produce any reasoning or thinking " +
+                "process; answer directly and concisely."
+        }
+        // Persistent memories (core instructions + preferences) ride the
+        // system prompt; facts/skills stay retrievable via search_memories.
+        ctx?.let { basePrompt += MemoryStore.promptBlock(it) }
+        return basePrompt
+    }
+
+    /**
+     * Primes the LOCAL server's prompt cache.
+     *
+     * The llama.cpp server keeps the KV cache of the last prompt: the
+     * SECOND answer of a chat is faster because the system prompt, the
+     * tools and the memories are already processed. This sends the SAME
+     * prefix (the system prompt + the tools) with a tiny message and ONE
+     * token of answer, so the FIRST answer of a new chat is as fast as
+     * the second one.
+     *
+     * Only for the local server: a cloud provider would charge for it.
+     */
+    suspend fun warmUp() {
+        try {
+            val cfg = AppSettings.config.value
+            if (cfg.providerId != com.taboia872.androidassist.llm.LlmProviders.LOCAL.id) {
+                return
+            }
+            if (cfg.baseUrl.isBlank() || cfg.model.isBlank()) return
+            LlmClient.chat(
+                messages = listOf(Triple("user", ".", null)),
+                systemPrompt = buildBasePrompt(cfg),
+                toolsEnabled = AppSettings.anyToolEnabled(),
+                allowWebSearch = true,
+                maxTokens = 1,
+                cfgOverride = cfg
+            ).collect { }
+        } catch (e: Exception) {
+        }
+    }
+
+
 }

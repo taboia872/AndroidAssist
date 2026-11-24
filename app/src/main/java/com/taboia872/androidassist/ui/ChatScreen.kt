@@ -64,6 +64,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -142,6 +143,16 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
 
     // Auto-scroll only until the user scrolls manually: streaming keeps
+
+    // A NEW chat: prime the local server's prompt cache (the system
+    // prompt + the tools + the memories) so the FIRST answer is as fast
+    // as the second one.
+    LaunchedEffect(session.chatId) {
+        delay(700)
+        if (session.messages.isEmpty()) {
+            session.warmUp()
+        }
+    }
 
     // ---- the "+" menu (attach, web search, tools) ----
     var showToolsMenu by remember { mutableStateOf(false) }
