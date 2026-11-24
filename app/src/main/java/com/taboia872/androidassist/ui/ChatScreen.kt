@@ -23,12 +23,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
@@ -39,6 +44,11 @@ import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,6 +96,7 @@ import java.util.Locale
  * no auto-start here — the main screen is for browsing/continuing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     resumeChatId: String? = null,
@@ -131,6 +142,16 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
 
     // Auto-scroll only until the user scrolls manually: streaming keeps
+
+    // ---- the "+" menu (attach, web search, tools) ----
+    var showToolsMenu by remember { mutableStateOf(false) }
+    // null = the user's own setting (the Configurations).
+    var webSearchOn by remember { mutableStateOf<Boolean?>(null) }
+    val webSearchEffective = webSearchOn
+        ?: AppSettings.config.value.webSearchEnabled
+    LaunchedEffect(webSearchOn) {
+        session.webSearchOverride = webSearchOn
+    }
 
     // ---- attachments ----
     var attachedImage by remember { mutableStateOf<Bitmap?>(null) }
@@ -413,12 +434,12 @@ fun ChatScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
-                        onClick = { attachLauncher.launch(arrayOf("image/*", "application/pdf")) },
+                        onClick = { showToolsMenu = true },
                         enabled = !session.busy,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
-                            Icons.Default.AttachFile, "Attach",
+                            Icons.Default.Add, Strings.t(Strings.chatMenuTitle),
                             tint = if (attachedImageBase64 != null || attachedPdfText != null)
                                 MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
@@ -529,4 +550,103 @@ fun ChatScreen(
             }
         }
     }
+
+    // The "+" menu: the attachments, the web search and the tools.
+    if (showToolsMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showToolsMenu = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 28.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    Strings.t(Strings.chatMenuTitle),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            showToolsMenu = false
+                            attachLauncher.launch(arrayOf("image/*"))
+                        }
+                    ) {
+                        Icon(Icons.Default.Image, null, Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(Strings.t(Strings.attachPhoto))
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            showToolsMenu = false
+                            attachLauncher.launch(arrayOf("application/pdf"))
+                        }
+                    ) {
+                        Icon(Icons.Default.Description, null, Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(Strings.t(Strings.attachDocument))
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        Strings.t(Strings.webSearchSection),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = webSearchEffective,
+                        onCheckedChange = { webSearchOn = it }
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    Strings.t(Strings.chatMenuTools),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                abilityGroups.forEach { (groupTitle, rows) ->
+                    Text(
+                        Strings.t(groupTitle),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    rows.forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                row.icon, null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                Strings.t(row.titleKey),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Switch(
+                                checked = AppSettings.abilityEnabled(row.id),
+                                onCheckedChange = { on ->
+                                    AppSettings.setAbilityEnabled(row.id, on)
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                }
+            }
+        }
+    }
+
 }

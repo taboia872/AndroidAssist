@@ -341,6 +341,11 @@ object LlmClient {
         toolExchanges: List<ToolExchange> = emptyList(),
         allowWebSearch: Boolean = true,
         /**
+         * The chat's own switch for the web search (null = the user's
+         * setting). True turns it on even if the setting is off.
+         */
+        webSearchOverride: Boolean? = null,
+        /**
          * The tools THIS request may declare (the ability ids +
          * "web_search" + "memory"). Null = the user's own settings. A
          * scheduled task passes its own list (chosen at creation time).
@@ -385,7 +390,9 @@ object LlmClient {
             if (toolsEnabled) {
                 // Each tool group is INDEPENDENT: turning the web search off
                 // must NOT hide the Android abilities, and vice-versa.
-                if (allowWebSearch && AppSettings.config.value.webSearchEnabled &&
+                val webAllowed = webSearchOverride
+                    ?: AppSettings.config.value.webSearchEnabled
+                if (allowWebSearch && webAllowed &&
                     (allowedTools == null || allowedTools.contains("web_search"))
                 ) {
                     specs.put(tool(

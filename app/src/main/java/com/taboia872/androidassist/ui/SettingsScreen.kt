@@ -159,7 +159,7 @@ private enum class SettingsCategory(val label: String) {
  * The description explains what the tool DOES — the user asked for a
  * short description of every tool.
  */
-private data class AbilityRow(
+internal data class AbilityRow(
     val id: String,
     val icon: ImageVector,
     val titleKey: String,
@@ -177,7 +177,7 @@ private data class AbilityRow(
  *
  * Ids match ToolAbility.
  */
-private val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
+internal val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
     Strings.abilityGroupAlerts to listOf(
         AbilityRow(
             ToolAbility.ALARM, Icons.Default.Alarm,

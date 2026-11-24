@@ -715,6 +715,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             toolsEnabled = toolsEnabled,
             toolExchanges = this.toolExchanges,
             allowWebSearch = allowWebSearch,
+            webSearchOverride = webSearchOverride,
             allowedTools = turnAllowedTools,
             cfgOverride = turnConfigOverride
         ).collect { event ->
@@ -783,6 +784,12 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
      * own switch), so the session does NOT speak it by itself.
      */
     var suppressTts: Boolean = false
+
+    /**
+     * The chat's own switch for the web search (null = the user's
+     * setting in the Configurations).
+     */
+    var webSearchOverride: Boolean? = null
 
     /** "The model answered" notification (no content) when backgrounded. */
     private fun notifyAnswered() {
