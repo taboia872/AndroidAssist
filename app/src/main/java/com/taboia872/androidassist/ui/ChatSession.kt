@@ -156,7 +156,7 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
          * (AppSettings.maxToolCalls) is clamped to this range, so a
          * misconfigured value can never make the app loop forever.
          */
-        const val MAX_TOOL_CALLS_HARD_LIMIT = 8
+        const val MAX_TOOL_CALLS_HARD_LIMIT = 15
     }
 
     /**

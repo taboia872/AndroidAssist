@@ -148,7 +148,7 @@ fun ChatScreen(
     // as the second one.
     LaunchedEffect(session.chatId) {
         delay(700)
-        if (session.messages.isEmpty()) {
+        if (session.messages.isEmpty() && AppSettings.config.value.warmUpEnabled) {
             session.warmUp()
         }
     }

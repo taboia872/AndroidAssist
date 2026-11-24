@@ -70,7 +70,7 @@ fun MaxToolCallsDialog(
 ) {
     NumberPickerDialog(
         title = Strings.t(Strings.maxToolCallsLabel),
-        options = (1..8).map { it to it.toString() },
+        options = (1..15).map { it to it.toString() },
         current = current,
         onSelected = onSelected,
         onDismiss = onDismiss

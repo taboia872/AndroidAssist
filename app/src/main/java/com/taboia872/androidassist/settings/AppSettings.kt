@@ -134,6 +134,12 @@ data class AppConfig(
      * directive in the system prompt. For small/local models.
      */
     val noThink: Boolean = false,
+    /**
+     * Pre-load the prompt of a NEW chat in the local model (the system
+     * prompt + the tools + the memories), so the first answer is as fast
+     * as the second one.
+     */
+    val warmUpEnabled: Boolean = true,
     /** Accent color id: "" (default teal), teal|blue|purple|pink|red|orange|green */
     val accentColor: String = "",
     /** Favorite FishAudio voices: JSON array of {id,title} */
@@ -302,6 +308,7 @@ object AppSettings {
     private const val K_APP_LANGUAGE = "app_language"
     private const val K_APP_THEME = "app_theme"
     private const val K_NO_THINK = "no_think"
+    private const val K_WARM_UP = "warm_up_enabled"
     private const val K_DEVICE_TOOLS = "device_tools"
     private const val K_DEVICE_TOOL_TOGGLES = "device_tool_toggles"
     private const val K_MEMORY_TOOLS = "memory_tools"
@@ -432,6 +439,7 @@ object AppSettings {
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
             appTheme = p.getString(K_APP_THEME, "") ?: "",
             noThink = p.getBoolean(K_NO_THINK, false),
+            warmUpEnabled = p.getBoolean(K_WARM_UP, true),
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
             deviceToolToggles = p.getString(K_DEVICE_TOOL_TOGGLES, "{}") ?: "{}",
             memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
@@ -482,6 +490,7 @@ object AppSettings {
             .putString(K_APP_LANGUAGE, next.appLanguage)
             .putString(K_APP_THEME, next.appTheme)
             .putBoolean(K_NO_THINK, next.noThink)
+            .putBoolean(K_WARM_UP, next.warmUpEnabled)
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
             .putString(K_DEVICE_TOOL_TOGGLES, next.deviceToolToggles)
             .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
