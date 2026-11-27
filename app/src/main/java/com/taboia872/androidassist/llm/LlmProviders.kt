@@ -25,9 +25,29 @@ object LlmProviders {
      * internet — the assistant runs on the device.
      */
     val LOCAL = LlmProvider("local", "Local (llama.cpp)", "http://127.0.0.1:8080/v1", false, "")
+    /**
+     * The DuckProxy: a local OpenAI-compatible proxy over duck.ai, running
+     * in the terminal (Chromium automation).
+     *
+     * It speaks the OpenAI protocol, but with its own quirks — the app
+     * adapts to them in [LlmClient] instead of the proxy guessing what the
+     * client wants:
+     * - the conversation is identified by the header X-Conversation-Id (the
+     *   proxy maps it to a duck.ai chat), because the app resends the whole
+     *   history on every turn and the history alone cannot identify it;
+     * - the "no-think" switch maps to reasoning_effort, the field the
+     *   proxy understands (it turns the reasoning button of the site);
+     * - the catalog is read through a real browser, so it needs a longer
+     *   timeout than a normal API;
+     * - the answer takes longer than a cloud API, so the read timeout is
+     *   bigger.
+     */
+    val DUCKPROXY = LlmProvider(
+        "duckproxy", "DuckProxy (duck.ai)", "http://127.0.0.1:3000/v1", false, ""
+    )
     val CUSTOM = LlmProvider("custom", "Custom (e.g. Ollama on PC)", "", false, "")
 
-    val ALL = listOf(OPENROUTER, GROQ, OLLAMA_CLOUD, NVIDIA, LOCAL, CUSTOM)
+    val ALL = listOf(OPENROUTER, GROQ, OLLAMA_CLOUD, NVIDIA, LOCAL, DUCKPROXY, CUSTOM)
 
     fun byId(id: String): LlmProvider = ALL.firstOrNull { it.id == id } ?: CUSTOM
 }

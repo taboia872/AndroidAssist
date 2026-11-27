@@ -701,7 +701,9 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
             allowWebSearch = allowWebSearch,
             webSearchOverride = webSearchOverride,
             allowedTools = turnAllowedTools,
-            cfgOverride = turnConfigOverride
+            cfgOverride = turnConfigOverride,
+            // The DuckProxy maps this id to a duck.ai chat.
+            conversationId = chatId
         ).collect { event ->
             when (event) {
                 is StreamEvent.Reasoning -> {

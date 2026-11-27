@@ -355,7 +355,13 @@ object LlmClient {
          * A different configuration for THIS request (the scheduled
          * task falls back to the cloud when the local server is down).
          */
-        cfgOverride: com.taboia872.androidassist.settings.AppConfig? = null
+        cfgOverride: com.taboia872.androidassist.settings.AppConfig? = null,
+        /**
+         * The id of THIS conversation. The DuckProxy uses it to map the
+         * conversation to a duck.ai chat (the app resends the whole history
+         * on every turn, so the history itself cannot identify it).
+         */
+        conversationId: String? = null
     ): Flow<StreamEvent> = flow {
         val cfg = cfgOverride ?: AppSettings.config.value
         if (cfg.baseUrl.isBlank()) {
@@ -371,6 +377,8 @@ object LlmClient {
             emit(StreamEvent.Error("No API key configured — open Settings."))
             return@flow
         }
+        // The DuckProxy has its own dialect (see LlmProviders.DUCKPROXY).
+        val isDuckProxy = cfg.providerId == LlmProviders.DUCKPROXY.id
 
         val body = JSONObject().apply {
             put("model", cfg.model)
@@ -378,8 +386,19 @@ object LlmClient {
             // No-think mode (local thinking models): llama-server and
             // compatible servers accept chat_template_kwargs; others ignore
             // the extra field harmlessly.
+            //
+            // The DuckProxy reads reasoning_effort (it maps it to the
+            // reasoning button of the site), so the switch works there too.
             if (AppSettings.config.value.noThink) {
-                put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
+                if (isDuckProxy) {
+                    put("reasoning_effort", "none")
+                } else {
+                    put("chat_template_kwargs", JSONObject().put("enable_thinking", false))
+                }
+            } else if (isDuckProxy) {
+                // The switch is OFF: the model SHOULD think. The proxy only
+                // turns the reasoning on when it is told to.
+                put("reasoning_effort", "low")
             }
             // Tool specs + the NAMES actually declared. The names feed the
             // system prompt block (the model is told what it can call RIGHT
@@ -518,10 +537,18 @@ object LlmClient {
                 // A LOCAL model (llama.cpp no celular) responde bem mais
                 // devagar que a nuvem — 5 a 10 tok/s. Com 120 s o app
                 // cortava a resposta no meio.
-                readTimeout = if (isLocalEndpoint(cfg.baseUrl)) 300_000 else 120_000
+                // The DuckProxy drives a real browser: the answer can take
+                // longer than the usual 120 s (its own limit is 180 s).
+                readTimeout = if (isDuckProxy || isLocalEndpoint(cfg.baseUrl)) 300_000 else 120_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
+                // The DuckProxy maps this id to a duck.ai chat. Without it,
+                // the app (which resends the whole history on every turn)
+                // would open a NEW chat on every message.
+                if (isDuckProxy && !conversationId.isNullOrBlank()) {
+                    setRequestProperty("X-Conversation-Id", conversationId)
+                }
             }
             try {
                 c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -591,7 +618,19 @@ object LlmClient {
                     if (data == "[DONE]") break
                     if (data.isEmpty()) continue
 
-                    val delta = JSONObject(data)
+                    // A server can report a failure INSIDE the stream
+                    // (HTTP 200 + an error frame). The frame carries no
+                    // "choices" — skipping it silently left the user with
+                    // an empty answer and no explanation.
+                    val frame = JSONObject(data)
+                    val frameError = frame.optJSONObject("error")
+                    if (frameError != null) {
+                        emit(StreamEvent.Error(
+                            frameError.optString("message", "The server reported an error.")
+                        ))
+                        break
+                    }
+                    val delta = frame
                         .optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta")
                         ?: continue
 

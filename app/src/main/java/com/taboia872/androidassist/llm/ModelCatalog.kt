@@ -89,7 +89,11 @@ object ModelCatalog {
                 val conn = Net.open("$url/models").apply {
                     requestMethod = "GET"
                     connectTimeout = 10_000
-                    readTimeout = 15_000
+                    // The DuckProxy reads the catalog from the duck.ai page
+                    // through a real browser: the first call takes ~12 s
+                    // (it opens Chromium and navigates). The usual 15 s was
+                    // right on the edge and the list sometimes failed.
+                    readTimeout = if (isDuckProxyUrl(url)) 60_000 else 15_000
                     setRequestProperty("Accept", "application/json")
                     if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
                 }
@@ -132,6 +136,14 @@ object ModelCatalog {
         }
         return emptyList()
     }
+
+    /**
+     * Is this the DuckProxy? It answers the catalog through a browser, so
+     * it needs more patience than a normal API.
+     */
+    private fun isDuckProxyUrl(url: String): Boolean =
+        AppSettings.config.value.providerId == LlmProviders.DUCKPROXY.id ||
+            url.contains("127.0.0.1:3000") || url.contains("localhost:3000")
 
     /**
      * Map a /models JSON body onto ModelInfo. Field shapes differ per
