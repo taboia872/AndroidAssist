@@ -377,9 +377,7 @@ object LlmClient {
             ) specs.put(spec)
         }
         // Memory tools — their own group.
-        if (AppSettings.config.value.memoryToolsEnabled &&
-            (allowedTools == null || allowedTools.contains("memory"))
-        ) {
+        if (ToolCatalog.memoryToolsDeclared(cfg, allowedTools)) {
             memoryToolSpecs().forEach { specs.put(it) }
         }
         for (i in 0 until specs.length()) {

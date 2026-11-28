@@ -66,7 +66,10 @@ fun PromptInspectorScreen(onBack: () -> Unit) {
                 "process; answer directly and concisely."
         }
         if (cfg.memoriesInPrompt) {
-            system += MemoryStore.promptBlock(context, cfg.memoryToolsEnabled)
+            system += MemoryStore.promptBlock(
+                context,
+                ToolCatalog.memoryToolsDeclared(cfg, null)
+            )
         }
         val (specs, names) = LlmClient.currentToolSpecs()
         val availability = ToolCatalog.availabilityBlock(names, emptyList())

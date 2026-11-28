@@ -51,6 +51,16 @@ object ToolCatalog {
         listOf("web_search") + ToolAbility.TOOLS.values.flatten() + ToolAbility.MEMORY_TOOLS
 
     /**
+     * The memory tools will be DECLARED in this request? The prompt may
+     * only tell the model to search its memories when that is true.
+     */
+    fun memoryToolsDeclared(
+        cfg: com.taboia872.androidassist.settings.AppConfig,
+        allowedTools: List<String>?
+    ): Boolean = cfg.memoryToolsEnabled &&
+        (allowedTools == null || allowedTools.contains("memory"))
+
+    /**
      * The system-prompt block that tells the model which tools it has RIGHT
      * NOW.
      *

@@ -177,9 +177,11 @@ object MemoryStore {
                 append("User preferences:\n")
                 prefs.forEach { append("- ").append(it.text).append("\n") }
             }
-            // Only tell the model to search its memories when the
-            // search tool is actually available.
-            if (mentionSearchTool) {
+            // Only tell the model to search its memories when (a) the
+            // search tool is actually available and (b) there ARE
+            // hidden memories (the facts and the skills) to find.
+            val hidden = list.any { it.kind == "fact" || it.kind == "skill" }
+            if (mentionSearchTool && hidden) {
                 append(
                     "You also have memories you cannot see right now (facts and " +
                         "skills). When the question seems to involve personal " +
