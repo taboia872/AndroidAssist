@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.StarBorder
@@ -528,6 +529,15 @@ fun SettingsScreen(
                             checked = cfg.noThink,
                             onCheckedChange = { on ->
                                 AppSettings.update { it.copy(noThink = on) }
+                            }
+                        )
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Compress,
+                            title = Strings.t(Strings.slimPromptLabel),
+                            subtitle = Strings.t(Strings.slimPromptSub),
+                            checked = cfg.slimPrompt,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(slimPrompt = on) }
                             }
                         )
                     }

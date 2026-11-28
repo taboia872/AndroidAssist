@@ -91,7 +91,18 @@ object LlmClient {
         put("type", "function")
         put("function", JSONObject().apply {
             put("name", name)
-            put("description", description)
+            // The SLIM mode: one line per tool. The ablation of tool
+            // documentation shows the long prose is redundant (the name
+            // already states the purpose) while the PARAMETER
+            // descriptions carry the accuracy — those stay untouched.
+            put(
+                "description",
+                if (AppSettings.config.value.slimPrompt) {
+                    SHORT_PURPOSE[name] ?: description
+                } else {
+                    description
+                }
+            )
             put("parameters", JSONObject().apply {
                 put("type", "object")
                 put("properties", JSONObject().apply {
@@ -297,6 +308,40 @@ object LlmClient {
     )
 
     /**
+     * The ONE-LINE purpose of each tool — the slim prompt for small
+     * models. The name of the tool already says most of it; the long
+     * descriptions cost tokens and buy nothing (the ablation of tool
+     * documentation: removing them cuts the schema by a third to a half
+     * at no detectable cost).
+     */
+    private val SHORT_PURPOSE: Map<String, String> = mapOf(
+        "set_alarm" to "Set an alarm on the phone.",
+        "set_timer" to "Start a countdown timer on the phone.",
+        "add_calendar_event" to "Open a pre-filled calendar event for the user to review.",
+        "open_app" to "Open an app on the phone by name.",
+        "read_clipboard" to "Read the text in the clipboard.",
+        "add_to_clipboard" to "Copy text to the clipboard.",
+        "share_text" to "Share text with another app.",
+        "get_location" to "Get the user's current location.",
+        "open_map" to "Open a place or a search in a map app.",
+        "write_file" to "Write a text file in the app's workspace.",
+        "read_file" to "Read a text file from the workspace.",
+        "list_files" to "List the files in a workspace folder.",
+        "create_folder" to "Create a folder in the workspace.",
+        "delete_file" to "Delete a file from the workspace.",
+        "delete_folder" to "Delete a folder from the workspace.",
+        "send_message" to "Send a message to a contact (the user confirms before it goes).",
+        "open_url" to "Open a web page in the browser.",
+        "web_search" to "Search the web for current information.",
+        "save_memory" to "Save a lasting memory about the user.",
+        "search_memories" to "Search the user's saved memories.",
+        "forget_memory" to "Forget a saved memory.",
+        "schedule_task" to "Schedule a task for the assistant to run later.",
+        "list_tasks" to "List the scheduled tasks.",
+        "cancel_task" to "Cancel a scheduled task."
+    )
+
+    /**
      * The tool specs of a request (the very same ones it sends) + the
      * names. Extracted so the PROMPT INSPECTOR shows exactly what
      * would go out — the specs can never drift apart.
@@ -478,7 +523,8 @@ object LlmClient {
             ) listOf("web_search") else emptyList()
             val effectivePrompt = systemPrompt +
                 ToolCatalog.availabilityBlock(
-                    declaredToolNames, usedUpToolNames
+                    declaredToolNames, usedUpToolNames,
+                    slim = AppSettings.config.value.slimPrompt
                 )
             put("messages", JSONArray().apply {
                 if (effectivePrompt.isNotBlank()) {

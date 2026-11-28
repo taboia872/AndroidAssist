@@ -68,12 +68,28 @@ object ToolCatalog {
      */
     fun availabilityBlock(
         declared: List<String>,
-        usedUp: List<String> = emptyList()
+        usedUp: List<String> = emptyList(),
+        /**
+         * The SLIM mode: the list of the available tools is NOT sent (the
+         * JSON the model already receives says what it can call — saying
+         * it twice only makes the prompt bigger). The "already used" line
+         * stays: that one is not in the JSON.
+         */
+        slim: Boolean = false
     ): String {
         // Nothing available: the block is not sent at all.
         if (declared.isEmpty() && usedUp.isEmpty()) return ""
         val sb = StringBuilder()
         sb.append("\n\n")
+        if (slim) {
+            if (usedUp.isNotEmpty()) {
+                sb.append("Already used in this turn (do not call again): ")
+                    .append(usedUp.joinToString(", "))
+                    .append(". Use the result you already have.")
+                    .append("\n")
+            }
+            return sb.toString()
+        }
         if (declared.isNotEmpty()) {
             sb.append("Tools available to you in this turn (call them with the ")
                 .append("function-calling interface):\n")

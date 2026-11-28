@@ -140,6 +140,14 @@ data class AppConfig(
      * directive in the system prompt. For small/local models.
      */
     val noThink: Boolean = false,
+    /**
+     * The SLIM prompt: one-line tool descriptions and no duplicated
+     * "tools available" block. The research on small models shows the
+     * long tool descriptions are redundant (the name already says what
+     * the tool does) while the PARAMETER descriptions are the part that
+     * carries the accuracy — those are never touched.
+     */
+    val slimPrompt: Boolean = true,
     /** Accent color id: "" (default teal), teal|blue|purple|pink|red|orange|green */
     val accentColor: String = "",
     /** Favorite FishAudio voices: JSON array of {id,title} */
@@ -308,6 +316,7 @@ object AppSettings {
     private const val K_APP_LANGUAGE = "app_language"
     private const val K_APP_THEME = "app_theme"
     private const val K_NO_THINK = "no_think"
+    private const val K_SLIM_PROMPT = "slim_prompt"
     private const val K_DEVICE_TOOLS = "device_tools"
     private const val K_DEVICE_TOOL_TOGGLES = "device_tool_toggles"
     private const val K_MEMORY_TOOLS = "memory_tools"
@@ -439,6 +448,7 @@ object AppSettings {
             appLanguage = p.getString(K_APP_LANGUAGE, "") ?: "",
             appTheme = p.getString(K_APP_THEME, "") ?: "",
             noThink = p.getBoolean(K_NO_THINK, false),
+            slimPrompt = p.getBoolean(K_SLIM_PROMPT, true),
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
             deviceToolToggles = p.getString(K_DEVICE_TOOL_TOGGLES, "{}") ?: "{}",
             memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
@@ -490,6 +500,7 @@ object AppSettings {
             .putString(K_APP_LANGUAGE, next.appLanguage)
             .putString(K_APP_THEME, next.appTheme)
             .putBoolean(K_NO_THINK, next.noThink)
+            .putBoolean(K_SLIM_PROMPT, next.slimPrompt)
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
             .putString(K_DEVICE_TOOL_TOGGLES, next.deviceToolToggles)
             .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
