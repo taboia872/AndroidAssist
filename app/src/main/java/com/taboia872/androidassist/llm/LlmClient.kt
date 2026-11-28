@@ -347,6 +347,7 @@ object LlmClient {
      * would go out — the specs can never drift apart.
      */
     private fun buildSpecs(
+        cfg: com.taboia872.androidassist.settings.AppConfig,
         toolsEnabled: Boolean,
         allowWebSearch: Boolean,
         allowedTools: List<String>?,
@@ -358,7 +359,7 @@ object LlmClient {
         // Each tool group is INDEPENDENT: turning the web search off
         // must NOT hide the Android abilities, and vice-versa.
         val webAllowed = webSearchOverride
-            ?: AppSettings.config.value.webSearchEnabled
+            ?: cfg.webSearchEnabled
         if (allowWebSearch && webAllowed &&
             (allowedTools == null || allowedTools.contains("web_search"))
         ) {
@@ -391,6 +392,7 @@ object LlmClient {
      * What a request would declare RIGHT NOW (the prompt inspector).
      */
     fun currentToolSpecs(): Pair<org.json.JSONArray, List<String>> = buildSpecs(
+        cfg = AppSettings.config.value,
         toolsEnabled = AppSettings.anyToolEnabled(),
         allowWebSearch = true,
         allowedTools = null,
@@ -506,7 +508,7 @@ object LlmClient {
             // NOW) and are read back from the very same specs, so the prompt
             // and the declared tools can never drift apart.
             val (specs, declaredToolNames) = buildSpecs(
-                toolsEnabled, allowWebSearch, allowedTools, webSearchOverride
+                cfg, toolsEnabled, allowWebSearch, allowedTools, webSearchOverride
             )
             if (specs.length() > 0) {
                 put("tools", specs)
