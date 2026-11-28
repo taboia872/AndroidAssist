@@ -249,7 +249,9 @@ internal val abilityGroups: List<Pair<String, List<AbilityRow>>> = listOf(
 fun SettingsScreen(
     onBack: () -> Unit,
     /** Opens the scheduled tasks (the MainActivity's screen state). */
-    onOpenTasks: (() -> Unit)? = null
+    onOpenTasks: (() -> Unit)? = null,
+    /** Opens the prompt inspector (the MainActivity's screen state). */
+    onOpenPromptInspector: (() -> Unit)? = null
 ) {
     val cfg by AppSettings.config.collectAsState()
     val provider = LlmProviders.byId(cfg.providerId)
@@ -1106,6 +1108,18 @@ fun SettingsScreen(
                                 subtitle = Strings.t(Strings.defaultAssistantOkSub),
                                 onClick = { openSystemAssistantSettings() },
                                 trailingArrow = false
+                            )
+                        }
+                    }
+                    if (onOpenPromptInspector != null) {
+                        // The LAST setting of the System tab: the prompt
+                        // inspector (what the app would send, and its size).
+                        SettingsSection(title = Strings.t(Strings.promptInspectorTitle)) {
+                            SettingsItem(
+                                icon = Icons.Default.Visibility,
+                                title = Strings.t(Strings.promptInspectorTitle),
+                                subtitle = Strings.t(Strings.promptInspectorSub),
+                                onClick = { onOpenPromptInspector() }
                             )
                         }
                     }

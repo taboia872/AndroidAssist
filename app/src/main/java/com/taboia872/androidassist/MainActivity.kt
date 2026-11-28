@@ -25,6 +25,7 @@ import com.taboia872.androidassist.settings.AppSettings
 import com.taboia872.androidassist.ui.ChatHistoryScreen
 import com.taboia872.androidassist.ui.ChatScreen
 import com.taboia872.androidassist.ui.ChatSessions
+import com.taboia872.androidassist.ui.PromptInspectorScreen
 import com.taboia872.androidassist.ui.SettingsScreen
 import com.taboia872.androidassist.ui.TasksScreen
 import com.taboia872.androidassist.ui.theme.AndroidAssistTheme
@@ -150,7 +151,11 @@ class MainActivity : ComponentActivity() {
                         when (currentScreen) {
                             "settings" -> SettingsScreen(
                                 onBack = { screen = "chat" },
-                                onOpenTasks = { screen = "tasks" }
+                                onOpenTasks = { screen = "tasks" },
+                                onOpenPromptInspector = { screen = "prompt_inspector" }
+                            )
+                            "prompt_inspector" -> PromptInspectorScreen(
+                                onBack = { screen = "settings" }
                             )
                             "tasks" -> TasksScreen(onBack = { screen = "chat" })
                             "history" -> ChatHistoryScreen(

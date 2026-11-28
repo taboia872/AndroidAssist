@@ -297,6 +297,64 @@ object LlmClient {
     )
 
     /**
+     * The tool specs of a request (the very same ones it sends) + the
+     * names. Extracted so the PROMPT INSPECTOR shows exactly what
+     * would go out — the specs can never drift apart.
+     */
+    private fun buildSpecs(
+        toolsEnabled: Boolean,
+        allowWebSearch: Boolean,
+        allowedTools: List<String>?,
+        webSearchOverride: Boolean?
+    ): Pair<org.json.JSONArray, List<String>> {
+        val specs = org.json.JSONArray()
+        val names = mutableListOf<String>()
+        if (!toolsEnabled) return Pair(specs, names)
+        // Each tool group is INDEPENDENT: turning the web search off
+        // must NOT hide the Android abilities, and vice-versa.
+        val webAllowed = webSearchOverride
+            ?: AppSettings.config.value.webSearchEnabled
+        if (allowWebSearch && webAllowed &&
+            (allowedTools == null || allowedTools.contains("web_search"))
+        ) {
+            specs.put(tool(
+                "web_search",
+                "Search the web for current information (news, prices, weather, " +
+                    "recent events). Use when the question needs up-to-date facts.",
+                "query" to "The search query, in the user's language",
+                required = listOf("query")
+            ))
+        }
+        // Android abilities — ONE BY ONE (the user can switch each).
+        deviceToolSpecs().forEach { (ability, spec) ->
+            if (AppSettings.abilityEnabled(ability) &&
+                (allowedTools == null || allowedTools.contains(ability))
+            ) specs.put(spec)
+        }
+        // Memory tools — their own group.
+        if (AppSettings.config.value.memoryToolsEnabled &&
+            (allowedTools == null || allowedTools.contains("memory"))
+        ) {
+            memoryToolSpecs().forEach { specs.put(it) }
+        }
+        for (i in 0 until specs.length()) {
+            names += specs.getJSONObject(i)
+                .getJSONObject("function").getString("name")
+        }
+        return Pair(specs, names)
+    }
+
+    /**
+     * What a request would declare RIGHT NOW (the prompt inspector).
+     */
+    fun currentToolSpecs(): Pair<org.json.JSONArray, List<String>> = buildSpecs(
+        toolsEnabled = AppSettings.anyToolEnabled(),
+        allowWebSearch = true,
+        allowedTools = null,
+        webSearchOverride = null
+    )
+
+    /**
      * Memory tool specs — their OWN group, independent from the Android
      * abilities and from the web search.
      */
@@ -404,44 +462,12 @@ object LlmClient {
             // system prompt block (the model is told what it can call RIGHT
             // NOW) and are read back from the very same specs, so the prompt
             // and the declared tools can never drift apart.
-            val specs = JSONArray()
-            val declaredToolNames = mutableListOf<String>()
-            if (toolsEnabled) {
-                // Each tool group is INDEPENDENT: turning the web search off
-                // must NOT hide the Android abilities, and vice-versa.
-                val webAllowed = webSearchOverride
-                    ?: AppSettings.config.value.webSearchEnabled
-                if (allowWebSearch && webAllowed &&
-                    (allowedTools == null || allowedTools.contains("web_search"))
-                ) {
-                    specs.put(tool(
-                        "web_search",
-                        "Search the web for current information (news, prices, weather, " +
-                            "recent events). Use when the question needs up-to-date facts.",
-                        "query" to "The search query, in the user's language",
-                        required = listOf("query")
-                    ))
-                }
-                // Android abilities — ONE BY ONE (the user can switch each).
-                deviceToolSpecs().forEach { (ability, spec) ->
-                    if (AppSettings.abilityEnabled(ability) &&
-                        (allowedTools == null || allowedTools.contains(ability))
-                    ) specs.put(spec)
-                }
-                // Memory tools — their own group.
-                if (AppSettings.config.value.memoryToolsEnabled &&
-                    (allowedTools == null || allowedTools.contains("memory"))
-                ) {
-                    memoryToolSpecs().forEach { specs.put(it) }
-                }
-                for (i in 0 until specs.length()) {
-                    declaredToolNames += specs.getJSONObject(i)
-                        .getJSONObject("function").getString("name")
-                }
-                if (specs.length() > 0) {
-                    put("tools", specs)
-                    put("tool_choice", "auto")
-                }
+            val (specs, declaredToolNames) = buildSpecs(
+                toolsEnabled, allowWebSearch, allowedTools, webSearchOverride
+            )
+            if (specs.length() > 0) {
+                put("tools", specs)
+                put("tool_choice", "auto")
             }
             // The web search runs at most ONCE per turn: on the following
             // rounds it is neither declared nor disabled — it is already
