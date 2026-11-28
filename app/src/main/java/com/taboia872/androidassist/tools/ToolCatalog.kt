@@ -56,37 +56,31 @@ object ToolCatalog {
      *
      * [declared] = the tools this request actually declares (read back from
      * the very same specs LlmClient sends — they can never drift apart).
-     * [disabled] = the tools the user switched OFF in Settings.
      * [usedUp] = tools that are enabled but already consumed in this turn
      * (the web search runs at most once per turn).
+     *
+     * The block NEVER mentions the tools that are switched OFF: the model
+     * can only call what is declared, and naming the missing ones only
+     * makes the prompt bigger (the user asked for this).
      *
      * The block is built FRESH per request (never appended to a stored
      * prompt), so it cannot be duplicated.
      */
     fun availabilityBlock(
         declared: List<String>,
-        disabled: List<String>,
         usedUp: List<String> = emptyList()
     ): String {
-        if (declared.isEmpty() && disabled.isEmpty() && usedUp.isEmpty()) return ""
+        // Nothing available: the block is not sent at all.
+        if (declared.isEmpty() && usedUp.isEmpty()) return ""
         val sb = StringBuilder()
         sb.append("\n\n")
-        if (declared.isEmpty()) {
-            sb.append("No tools are available to call in this turn.")
-        } else {
+        if (declared.isNotEmpty()) {
             sb.append("Tools available to you in this turn (call them with the ")
                 .append("function-calling interface):\n")
             declared.forEach { name ->
                 sb.append("- ").append(name).append(": ")
                     .append(PURPOSE[name] ?: name).append("\n")
             }
-        }
-        if (disabled.isNotEmpty()) {
-            sb.append("These capabilities are switched OFF by the user: ")
-                .append(disabled.joinToString(", "))
-                .append(". Do NOT call them. If the request depends on one, ")
-                .append("say plainly that it is turned off instead of guessing.")
-                .append("\n")
         }
         if (usedUp.isNotEmpty()) {
             sb.append("Already used in this turn (do not call again): ")

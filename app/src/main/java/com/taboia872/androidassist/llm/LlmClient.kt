@@ -443,11 +443,6 @@ object LlmClient {
                     put("tool_choice", "auto")
                 }
             }
-            // The tools the user switched OFF: named in the prompt so the
-            // model says "that is turned off" instead of burning a call on
-            // it or pretending it worked.
-            val disabledToolNames = ToolCatalog.ALL_TOOLS
-                .filter { !AppSettings.toolAllowed(it) }
             // The web search runs at most ONCE per turn: on the following
             // rounds it is neither declared nor disabled — it is already
             // spent, and the prompt says so (otherwise the model would think
@@ -457,7 +452,7 @@ object LlmClient {
             ) listOf("web_search") else emptyList()
             val effectivePrompt = systemPrompt +
                 ToolCatalog.availabilityBlock(
-                    declaredToolNames, disabledToolNames, usedUpToolNames
+                    declaredToolNames, usedUpToolNames
                 )
             put("messages", JSONArray().apply {
                 if (effectivePrompt.isNotBlank()) {
