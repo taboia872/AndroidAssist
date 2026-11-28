@@ -93,6 +93,12 @@ data class AppConfig(
      */
     val memoryToolsEnabled: Boolean = true,
     /**
+     * Send the saved memories (the standing instructions and the
+     * preferences) in the system prompt. The memory TOOLS have their own
+     * switch: this one controls what the model READS.
+     */
+    val memoriesInPrompt: Boolean = true,
+    /**
      * How many TOOL CALLS the model may make in ONE turn (rounds of
      * function calling). 1 = a single tool per turn; higher lets the
      * model chain (alarm, then open app, then calendar). The web search
@@ -305,6 +311,7 @@ object AppSettings {
     private const val K_DEVICE_TOOLS = "device_tools"
     private const val K_DEVICE_TOOL_TOGGLES = "device_tool_toggles"
     private const val K_MEMORY_TOOLS = "memory_tools"
+    private const val K_MEMORIES_IN_PROMPT = "memories_in_prompt"
     private const val K_MAX_TOOL_CALLS = "max_tool_calls"
     private const val K_MAX_CONTEXT_TURNS = "max_context_turns"
     private const val K_VOICE_SILENCE_MS = "voice_silence_ms"
@@ -435,6 +442,7 @@ object AppSettings {
             deviceToolsEnabled = p.getBoolean(K_DEVICE_TOOLS, true),
             deviceToolToggles = p.getString(K_DEVICE_TOOL_TOGGLES, "{}") ?: "{}",
             memoryToolsEnabled = p.getBoolean(K_MEMORY_TOOLS, true),
+            memoriesInPrompt = p.getBoolean(K_MEMORIES_IN_PROMPT, true),
             maxToolCalls = p.getInt(K_MAX_TOOL_CALLS, 4),
             maxContextTurns = p.getInt(K_MAX_CONTEXT_TURNS, 0),
             voiceSilenceMs = p.getInt(K_VOICE_SILENCE_MS, 1500),
@@ -485,6 +493,7 @@ object AppSettings {
             .putBoolean(K_DEVICE_TOOLS, next.deviceToolsEnabled)
             .putString(K_DEVICE_TOOL_TOGGLES, next.deviceToolToggles)
             .putBoolean(K_MEMORY_TOOLS, next.memoryToolsEnabled)
+            .putBoolean(K_MEMORIES_IN_PROMPT, next.memoriesInPrompt)
             .putInt(K_MAX_TOOL_CALLS, next.maxToolCalls)
             .putInt(K_MAX_CONTEXT_TURNS, next.maxContextTurns)
             .putInt(K_VOICE_SILENCE_MS, next.voiceSilenceMs)

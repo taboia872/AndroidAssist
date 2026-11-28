@@ -880,7 +880,15 @@ class ChatSession(private val persistenceContext: android.content.Context? = nul
         }
         // Persistent memories (core instructions + preferences) ride the
         // system prompt; facts/skills stay retrievable via search_memories.
-        ctx?.let { basePrompt += MemoryStore.promptBlock(it) }
+        // The switch decides if they ride at all.
+        if (AppSettings.config.value.memoriesInPrompt) {
+            ctx?.let {
+                basePrompt += MemoryStore.promptBlock(
+                    it,
+                    AppSettings.config.value.memoryToolsEnabled
+                )
+            }
+        }
         return basePrompt
     }
 

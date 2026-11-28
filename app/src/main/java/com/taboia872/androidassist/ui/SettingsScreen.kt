@@ -922,6 +922,15 @@ fun SettingsScreen(
                                 AppSettings.update { it.copy(memoryToolsEnabled = on) }
                             }
                         )
+                        SettingsItemWithSwitch(
+                            icon = Icons.Default.Save,
+                            title = Strings.t(Strings.memoriesInPromptLabel),
+                            subtitle = Strings.t(Strings.memoriesInPromptSub),
+                            checked = cfg.memoriesInPrompt,
+                            onCheckedChange = { on ->
+                                AppSettings.update { it.copy(memoriesInPrompt = on) }
+                            }
+                        )
                         SettingsItem(
                             icon = Icons.Default.Save,
                             title = Strings.t(Strings.memoriesManageLabel),

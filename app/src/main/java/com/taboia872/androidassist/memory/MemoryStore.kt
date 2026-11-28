@@ -161,7 +161,7 @@ object MemoryStore {
      * and PREFERENCES always ride along. FACTS/SKILLS stay retrievable.
      * Never touches the user's fixed persona prompt — appended below it.
      */
-    fun promptBlock(context: Context): String {
+    fun promptBlock(context: Context, mentionSearchTool: Boolean = true): String {
         val list = all(context)
         val core = list.filter { it.kind == "core" }
         val prefs = list.filter { it.kind == "preference" }
@@ -177,11 +177,15 @@ object MemoryStore {
                 append("User preferences:\n")
                 prefs.forEach { append("- ").append(it.text).append("\n") }
             }
-            append(
-                "You also have memories you cannot see right now (facts and " +
-                    "skills). When the question seems to involve personal " +
-                    "facts or a routine, call search_memories first.\n"
-            )
+            // Only tell the model to search its memories when the
+            // search tool is actually available.
+            if (mentionSearchTool) {
+                append(
+                    "You also have memories you cannot see right now (facts and " +
+                        "skills). When the question seems to involve personal " +
+                        "facts or a routine, call search_memories first.\n"
+                )
+            }
         }
     }
 }
